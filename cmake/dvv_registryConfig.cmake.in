@@ -1,0 +1,14 @@
+@PACKAGE_INIT@
+
+# The version, with the release-stage label of a pre-release build (applications show it, e.g.
+# in --version).
+set(dvv_registry_VERSION_STRING "@dvv_registry_VERSION_STRING@")
+
+include(CMakeFindDependencyMacro)
+find_dependency(dvv_base @dvv_base_MIN_VERSION@)
+
+include("${CMAKE_CURRENT_LIST_DIR}/dvv_registryTargets.cmake")
+# dvv_link_components()
+include("${CMAKE_CURRENT_LIST_DIR}/DvvComponents.cmake")
+
+check_required_components(dvv_registry)
