@@ -26,6 +26,18 @@ const ParameterSchema& noParameters() noexcept {
     return NONE;
 }
 
+ModuleHandles::~ModuleHandles() {
+    while (!handles_.empty()) {
+        handles_.pop_back();
+    }
+}
+
+void ModuleHandles::add(std::shared_ptr<void> handle) {
+    if (handle != nullptr) {
+        handles_.push_back(std::move(handle));
+    }
+}
+
 }  // namespace detail
 
 namespace {

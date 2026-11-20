@@ -123,6 +123,23 @@ struct ComponentStatus {
     [[nodiscard]] bool available() const noexcept { return !unavailable.has_value(); }
 };
 
+namespace detail {
+// The module states a registry owns. Releases them in reverse load order when destroyed, also
+// when load() fails after some modules ran. Internal (detail), so the tests can pin the order.
+class ModuleHandles {
+public:
+    ModuleHandles() = default;
+    ModuleHandles(ModuleHandles&&) noexcept = default;  // the moved-from one is empty
+    ModuleHandles& operator=(ModuleHandles&&) = delete;
+    ModuleHandles(const ModuleHandles&) = delete;
+    ModuleHandles& operator=(const ModuleHandles&) = delete;
+    ~ModuleHandles();                        // pops from the back
+    void add(std::shared_ptr<void> handle);  // ignores null
+private:
+    std::vector<std::shared_ptr<void>> handles_;
+};
+}  // namespace detail
+
 // The creation authority of every component (spec §9.4). Thread-safe.
 class ComponentRegistry final : public Managed<ComponentRegistry> {
     struct Entry {
