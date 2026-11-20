@@ -15,14 +15,9 @@ namespace detail {
 constinit RegistrationNode* RegistrationNode::list_head = nullptr;
 
 RegistrationNode::RegistrationNode(const std::type_info& interface,
-                                   std::optional<Kind> interface_kind, InfoFunction info,
-                                   SchemaFunction schema, ProbeFunction probe) noexcept
-    : interface_(&interface),
-      interface_kind_(interface_kind),
-      info_(info),
-      schema_(schema),
-      probe_(probe),
-      next_(list_head) {
+                                   std::optional<Kind> interface_kind,
+                                   RegistrationHooks hooks) noexcept
+    : interface_(&interface), interface_kind_(interface_kind), hooks_(hooks), next_(list_head) {
     list_head = this;
 }
 
@@ -54,10 +49,10 @@ std::unique_ptr<ComponentRegistry> ComponentRegistry::create(const Capabilities&
     std::vector<Entry> entries;
     for (const detail::RegistrationNode* node = detail::RegistrationNode::list_head;
          node != nullptr; node = node->next_) {
-        Entry entry{node, ComponentStatus{.info = node->info_()}};
+        Entry entry{node, ComponentStatus{.info = node->hooks_.info()}};
         ComponentStatus& status = entry.status;
         try {
-            status.schema = &node->schema_();
+            status.schema = &node->hooks_.schema();
         } catch (...) {
             status.unavailable =
                 Unavailable{internalReason("schema() threw", describeCurrentException())};
@@ -70,7 +65,7 @@ std::unique_ptr<ComponentRegistry> ComponentRegistry::create(const Capabilities&
                                                          kindName(*node->interface_kind_))};
         } else if (status.schema != nullptr) {
             try {
-                if (auto probed = node->probe_(caps); !probed) {
+                if (auto probed = node->hooks_.probe(caps); !probed) {
                     status.unavailable = std::move(probed.error());
                 }
             } catch (...) {

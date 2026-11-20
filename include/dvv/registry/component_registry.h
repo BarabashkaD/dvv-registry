@@ -49,6 +49,13 @@ class ComponentRegistry;
 
 namespace detail {
 
+// The static functions of one registered component.
+struct RegistrationHooks {
+    ComponentInfo (*info)() noexcept;
+    const ParameterSchema& (*schema)();  // never null; see noParameters()
+    std::expected<void, Unavailable> (*probe)(const Capabilities&);
+};
+
 // One registered component; a static object created by DVV_REGISTER. The constructor links it
 // into the process-wide list, so registration happens during static initialisation, before main.
 class RegistrationNode {
@@ -59,12 +66,8 @@ public:
     RegistrationNode& operator=(RegistrationNode&&) = delete;
 
 protected:
-    using InfoFunction = ComponentInfo (*)() noexcept;
-    using SchemaFunction = const ParameterSchema& (*)();
-    using ProbeFunction = std::expected<void, Unavailable> (*)(const Capabilities&);
-
     RegistrationNode(const std::type_info& interface, std::optional<Kind> interface_kind,
-                     InfoFunction info, SchemaFunction schema, ProbeFunction probe) noexcept;
+                     RegistrationHooks hooks) noexcept;
     ~RegistrationNode() = default;
 
 private:
@@ -75,9 +78,7 @@ private:
 
     const std::type_info* interface_;
     std::optional<Kind> interface_kind_;  // InterfaceKind<I>, when I specialises it
-    InfoFunction info_;
-    SchemaFunction schema_;
-    ProbeFunction probe_;
+    RegistrationHooks hooks_;
     RegistrationNode* next_;
 };
 
@@ -177,9 +178,9 @@ detail::ComponentRegistration<I>::ComponentRegistration(std::type_identity<T> /*
                   return std::optional<Kind>();
               }
           }(),
-          []() noexcept { return T::info(); },
-          []() -> const ParameterSchema& { return T::schema(); },
-          [](const Capabilities& caps) { return T::probe(caps); }),
+          RegistrationHooks{.info = []() noexcept { return T::info(); },
+                            .schema = []() -> const ParameterSchema& { return T::schema(); },
+                            .probe = [](const Capabilities& caps) { return T::probe(caps); }}),
       create_(&ComponentRegistry::construct<I, T>) {}
 
 template <class I>
