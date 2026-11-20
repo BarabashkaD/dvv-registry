@@ -90,7 +90,7 @@ endif()
 list(APPEND compile_fail_patterns
      "must be final" "must be constructible from" "must implement IWidget"
      "must provide static info" "declares schema" "must be constructible from")
-foreach(case IN ITEMS 1 2 3 4 5 7 8)
+foreach(case IN ITEMS 1 2 3 4 5 6 7 8)
     set(target dvv_registry_compile_fail_${case})
     add_executable(${target} EXCLUDE_FROM_ALL ${compile_fail_source})
     target_compile_definitions(${target} PRIVATE DVV_COMPILE_FAIL_CASE=${case})

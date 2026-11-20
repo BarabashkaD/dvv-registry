@@ -1,6 +1,6 @@
 // Compile-fail cases for components (spec §9.4). DVV_COMPILE_FAIL_CASE selects one:
 //   0  control: registered components created through the registry compile, also a component
-//      without schema() and with a one-argument constructor
+//      without schema() and with a one-argument constructor, and a registered module
 //   1  constructing a CreationKey<ComponentRegistry> outside the registry
 //   2  constructing a registered component without a key
 //   3  registering a class that is not final
@@ -64,6 +64,15 @@ public:
 };
 DVV_REGISTER(IWidget, Gadget);
 
+// A module that produces nothing; registered in the control.
+struct WidgetModule {
+    static dvv::ModuleInfo info() noexcept {
+        return {.id = "compile_fail.widget_module", .name = "Widget module"};
+    }
+    static dvv::ModuleLoad load(const dvv::ParameterValues& /*options*/) { return {}; }
+};
+DVV_REGISTER_MODULE(WidgetModule);
+
 #if DVV_COMPILE_FAIL_CASE == 3
 class NotFinal : public IWidget, public WidgetStatics, public dvv::Managed<NotFinal> {
 public:
@@ -90,6 +99,14 @@ public:
     static const dvv::ParameterSchema& schema() { return WidgetStatics::schema(); }
 };
 DVV_REGISTER(IWidget, NoProbe);
+#elif DVV_COMPILE_FAIL_CASE == 6
+// Only info(): a module needs load() too.
+struct NoLoadModule {
+    static dvv::ModuleInfo info() noexcept {
+        return {.id = "compile_fail.no_load_module", .name = "No load module"};
+    }
+};
+DVV_REGISTER_MODULE(NoLoadModule);
 #elif DVV_COMPILE_FAIL_CASE == 7
 class SchemaOneArg final : public IWidget, public WidgetStatics, public dvv::Managed<SchemaOneArg> {
 public:
