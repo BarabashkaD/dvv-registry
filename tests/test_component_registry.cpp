@@ -260,8 +260,9 @@ public:
 DVV_REGISTER(IGreeter, Plain);
 
 // The sorted ids of the test components without .kind, which report Kind::Source.
-constexpr auto SOURCE_IDS = std::to_array<std::string_view>(
-    {"test.needs_ready", "test.needs_shared_cap", "test.plain", "test.source_widget"});
+constexpr auto SOURCE_IDS =
+    std::to_array<std::string_view>({"test.needs_ready", "test.needs_shared_cap",
+                                     "test.needs_thrown", "test.plain", "test.source_widget"});
 
 const dvv::ComponentStatus* findStatus(const std::vector<dvv::ComponentStatus>& statuses,
                                        std::string_view id) {

@@ -4,6 +4,7 @@
 #include <exception>
 #include <format>
 #include <iterator>
+#include <ranges>
 #include <string>
 
 #include "dvv/base/log.h"
@@ -83,6 +84,61 @@ ModuleStatus moduleStatus(const ModuleInfo& info, ModuleLoad result) {
     return status;
 }
 
+// The status of a module that provides nothing because of `reason`; never empty, also when the
+// module produces nothing.
+ModuleStatus failedStatus(const ModuleInfo& info, std::string reason,
+                          std::vector<ModuleFact> facts = {}) {
+    ModuleStatus status = moduleStatus(info, ModuleLoad{.facts = std::move(facts)});
+    status.reason = std::move(reason);
+    return status;
+}
+
+// Runs one module's load(). The log lines name the module and capabilities only: the exception
+// text, the reason and the facts may hold a path, so they go only into the status.
+ModuleStatus loadModule(ModuleLoad (*load)(const ParameterValues&), const ModuleInfo& info,
+                        const ParameterValues& values) {
+    ModuleLoad result;
+    try {
+        result = load(values);
+    } catch (...) {
+        DVV_LOG_ERROR("module '{}' threw from load()", info.id);
+        return failedStatus(info, internalReason("load() threw", describeCurrentException()));
+    }
+    const auto undeclared = std::ranges::find_if(result.provides, [&info](const std::string& name) {
+        return !std::ranges::contains(info.produces, std::string_view(name));
+    });
+    if (undeclared != result.provides.end()) {
+        DVV_LOG_ERROR("module '{}' provided '{}', which its info() does not list", info.id,
+                      *undeclared);
+        return failedStatus(info,
+                            std::format("{}: load() provided undeclared capability '{}'",
+                                        errcName(Errc::Internal), *undeclared),
+                            std::move(result.facts));
+    }
+    return moduleStatus(info, std::move(result));
+}
+
+// Logs what a module provides and withholds: ids and capability names only.
+void logModuleStatus(const ModuleStatus& status) {
+    const auto join = [](const std::vector<std::string>& names) {
+        std::string joined;
+        for (const std::string& name : names) {
+            if (!joined.empty()) {
+                joined += ", ";
+            }
+            joined += name;
+        }
+        return joined;
+    };
+    const std::string provides = status.provides.empty() ? "nothing" : join(status.provides);
+    if (status.withheld.empty()) {
+        DVV_LOG_INFO("module '{}': provides {}", status.info.id, provides);
+    } else {
+        DVV_LOG_INFO("module '{}': provides {}; withholds {}", status.info.id, provides,
+                     join(status.withheld));
+    }
+}
+
 }  // namespace
 
 std::unique_ptr<ComponentRegistry> ComponentRegistry::create(const Capabilities& caps,
@@ -99,21 +155,54 @@ std::unique_ptr<ComponentRegistry> ComponentRegistry::load(const ModuleOptions& 
     struct Registered {
         const detail::ModuleRegistrationNode* node;
         ModuleInfo info;
+        bool duplicated;
     };
     std::vector<Registered> registered;
     for (const detail::ModuleRegistrationNode* node = detail::ModuleRegistrationNode::list_head;
          node != nullptr; node = node->next_) {
-        registered.push_back({node, node->info_()});
+        registered.push_back({.node = node, .info = node->info_(), .duplicated = false});
     }
     std::ranges::stable_sort(registered, {},
                              [](const Registered& module) { return module.info.id; });
 
+    // Registration order across translation units is unspecified and a load has side effects, so
+    // no copy of a duplicated id runs.
+    for (auto first = registered.begin(); first != registered.end();) {
+        const auto last = std::ranges::find_if(
+            first, registered.end(),
+            [&](const Registered& other) { return other.info.id != first->info.id; });
+        if (std::distance(first, last) > 1) {
+            DVV_LOG_ERROR("module id '{}' is registered more than once", first->info.id);
+            for (auto copy = first; copy != last; ++copy) {
+                copy->duplicated = true;
+            }
+        }
+        first = last;
+    }
+
+    // A module switched off at build time is not an error.
+    for (const std::string& id : options.modules | std::views::keys) {
+        if (!std::ranges::contains(registered, std::string_view(id),
+                                   [](const Registered& module) { return module.info.id; })) {
+            DVV_LOG_WARN("module options for '{}': no such module", id);
+        }
+    }
+
     Parts parts;
     const ParameterValues no_values;
     for (const Registered& module : registered) {
-        const auto found = options.modules.find(module.info.id);
-        const ParameterValues& values = found != options.modules.end() ? found->second : no_values;
-        parts.modules.push_back(moduleStatus(module.info, module.node->load_(values)));
+        ModuleStatus status;
+        if (module.duplicated) {
+            status = failedStatus(
+                module.info, internalReason("duplicate module id", std::string(module.info.id)));
+        } else {
+            const auto found = options.modules.find(module.info.id);
+            const ParameterValues& values =
+                found != options.modules.end() ? found->second : no_values;
+            status = loadModule(module.node->load_, module.info, values);
+        }
+        logModuleStatus(status);
+        parts.modules.push_back(std::move(status));
     }
     for (const ModuleStatus& status : parts.modules) {
         for (const std::string& name : status.provides) {

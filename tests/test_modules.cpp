@@ -2,22 +2,28 @@
 // test reads only its own module ids, and module state is a std::atomic or guarded by one
 // std::mutex.
 
+#include "test_modules.h"
+
 #include <doctest/doctest.h>
 
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cstddef>
 #include <expected>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <source_location>
+#include <span>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
 
 #include "dvv/base/lifetime.h"
+#include "dvv/base/log.h"
 #include "dvv/registry/component_registry.h"
 #include "dvv/registry/module.h"
 
@@ -158,6 +164,60 @@ struct RepeatsModule {
 
 DVV_REGISTER_MODULE(RepeatsModule);
 
+constexpr std::array<std::string_view, 1> DUP_PRODUCES{"test.dup"};
+
+// test_modules_duplicate.cpp registers a second module with this id.
+struct DuplicateModule {
+    static dvv::ModuleInfo info() noexcept {
+        return {.id = "test.mod.dup", .name = "Duplicate (first)", .produces = DUP_PRODUCES};
+    }
+    static dvv::ModuleLoad load(const dvv::ParameterValues& /*options*/) {
+        ++dvv::test::duplicate_module_loads;
+        return {.provides = {"test.dup"}};
+    }
+};
+
+DVV_REGISTER_MODULE(DuplicateModule);
+
+constexpr std::array<std::string_view, 1> THROWS_PRODUCES{"test.thrown"};
+
+// Its exception's text holds a folder, which must never reach the log.
+struct ThrowsModule {
+    static dvv::ModuleInfo info() noexcept {
+        return {.id = "test.mod.throws", .name = "Throws", .produces = THROWS_PRODUCES};
+    }
+    static dvv::ModuleLoad load(const dvv::ParameterValues& /*options*/) {
+        throw std::runtime_error("cannot open /fake/modules/lib");
+    }
+};
+
+DVV_REGISTER_MODULE(ThrowsModule);
+
+// Produces nothing; throws something that is not a std::exception.
+struct ThrowsOtherModule {
+    static dvv::ModuleInfo info() noexcept {
+        return {.id = "test.mod.throws_other", .name = "Throws other"};
+    }
+    static dvv::ModuleLoad load(const dvv::ParameterValues& /*options*/) { throw 42; }
+};
+
+DVV_REGISTER_MODULE(ThrowsOtherModule);
+
+constexpr std::array<std::string_view, 1> UNDECLARED_PRODUCES{"test.declared"};
+
+// Provides a capability its info() does not list.
+struct UndeclaredModule {
+    static dvv::ModuleInfo info() noexcept {
+        return {.id = "test.mod.undeclared", .name = "Undeclared", .produces = UNDECLARED_PRODUCES};
+    }
+    static dvv::ModuleLoad load(const dvv::ParameterValues& /*options*/) {
+        return {.provides = {"test.declared", "test.undeclared"},
+                .facts = {{"directory", "/fake/modules/undeclared"}}};
+    }
+};
+
+DVV_REGISTER_MODULE(UndeclaredModule);
+
 // The interface of the components that need a module's capability.
 class IModuleProbe {
 public:
@@ -197,6 +257,61 @@ public:
     }
 };
 DVV_REGISTER(IModuleProbe, NeedsSharedCap);
+
+class NeedsThrown final : public IModuleProbe, public dvv::Managed<NeedsThrown> {
+public:
+    explicit NeedsThrown(Key key) noexcept : Managed(std::move(key)) {}
+
+    static dvv::ComponentInfo info() noexcept {
+        return {.id = "test.needs_thrown", .name = "Needs thrown"};
+    }
+    static Probed probe(const dvv::Capabilities& caps) {
+        return dvv::require(caps, {"test.thrown"});
+    }
+};
+DVV_REGISTER(IModuleProbe, NeedsThrown);
+
+// The status of component `id` among `statuses`; nullopt when it is not there.
+std::optional<dvv::ComponentStatus> findComponent(const std::vector<dvv::ComponentStatus>& statuses,
+                                                  std::string_view id) {
+    const auto found = std::ranges::find(
+        statuses, id, [](const dvv::ComponentStatus& status) { return status.info.id; });
+    return found != statuses.end() ? std::optional(*found) : std::nullopt;
+}
+
+// The statuses among `modules` with `id`, in order.
+std::vector<const dvv::ModuleStatus*> findModules(std::span<const dvv::ModuleStatus> modules,
+                                                  std::string_view id) {
+    std::vector<const dvv::ModuleStatus*> found;
+    for (const dvv::ModuleStatus& status : modules) {
+        if (status.info.id == id) {
+            found.push_back(&status);
+        }
+    }
+    return found;
+}
+
+// Captures the log while it lives; the destructor removes every sink.
+class CapturedLog {
+public:
+    CapturedLog() { dvv::Logger::instance().addSink(sink_); }
+    CapturedLog(const CapturedLog&) = delete;
+    CapturedLog& operator=(const CapturedLog&) = delete;
+    CapturedLog(CapturedLog&&) = delete;
+    CapturedLog& operator=(CapturedLog&&) = delete;
+    ~CapturedLog() { dvv::Logger::instance().clearSinks(); }
+
+    // The number of lines that hold `text`.
+    [[nodiscard]] std::size_t count(std::string_view text) const {
+        const auto lines = sink_->lines();
+        return static_cast<std::size_t>(std::ranges::count_if(
+            lines, [text](const std::string& line) { return line.contains(text); }));
+    }
+    [[nodiscard]] bool holds(std::string_view text) const { return count(text) > 0; }
+
+private:
+    std::shared_ptr<dvv::MemorySink> sink_ = std::make_shared<dvv::MemorySink>();
+};
 
 // Has info() but no load(): not a module.
 struct NoLoad {
@@ -365,4 +480,104 @@ TEST_CASE("load records its caller as the creation site") {
     const std::source_location where = found->createdAt.value_or(std::source_location());
     CHECK(std::string_view(where.file_name()).ends_with("test_modules.cpp"));
     CHECK(where.line() == line);
+}
+
+TEST_CASE("options for an unknown module are ignored with a warning") {
+    const CapturedLog log;
+    const auto registry = dvv::ComponentRegistry::load({.modules = {{"test.nope", {}}}});
+    CHECK(registry != nullptr);
+    CHECK(log.holds("module options for 'test.nope': no such module"));
+}
+
+TEST_CASE("a throwing load provides nothing and leaves the rest working") {
+    const auto registry = dvv::ComponentRegistry::load();
+    const dvv::ModuleStatus* throws = registry->module("test.mod.throws");
+    REQUIRE(throws != nullptr);
+    CHECK(throws->reason.starts_with("Internal: load() threw: "));
+    CHECK(throws->reason == "Internal: load() threw: cannot open /fake/modules/lib");
+    CHECK(throws->provides.empty());
+    CHECK(throws->withheld == std::vector<std::string>{"test.thrown"});
+    CHECK_FALSE(registry->capabilities().has("test.thrown"));
+
+    const dvv::ModuleStatus* ready = registry->module("test.mod.ready");
+    REQUIRE(ready != nullptr);
+    CHECK(ready->provides == std::vector<std::string>{"test.ready"});
+
+    const auto needs_thrown = findComponent(registry->list<IModuleProbe>(), "test.needs_thrown");
+    REQUIRE(needs_thrown.has_value());
+    CHECK_FALSE(needs_thrown.value_or(dvv::ComponentStatus{}).available());
+    CHECK(needs_thrown.value_or(dvv::ComponentStatus{})
+              .unavailable.value_or(dvv::Unavailable{})
+              .capability == "test.thrown");
+}
+
+TEST_CASE("a load that throws a non-exception provides nothing") {
+    const auto registry = dvv::ComponentRegistry::load();
+    const dvv::ModuleStatus* throws_other = registry->module("test.mod.throws_other");
+    REQUIRE(throws_other != nullptr);
+    CHECK(throws_other->reason == "Internal: load() threw: unknown exception");
+    CHECK(throws_other->provides.empty());
+    CHECK(throws_other->withheld.empty());
+}
+
+TEST_CASE("a duplicated module id is never loaded") {
+    const int loads = dvv::test::duplicate_module_loads.load();
+    const auto registry = dvv::ComponentRegistry::load();
+    CHECK(dvv::test::duplicate_module_loads.load() == loads);
+    const auto copies = findModules(registry->modules(), "test.mod.dup");
+    REQUIRE(copies.size() == 2);
+    for (const dvv::ModuleStatus* copy : copies) {
+        CHECK(copy->reason == "Internal: duplicate module id: test.mod.dup");
+        CHECK(copy->provides.empty());
+        CHECK(copy->withheld == std::vector<std::string>{"test.dup"});
+    }
+    CHECK_FALSE(registry->capabilities().has("test.dup"));
+}
+
+TEST_CASE("a duplicated module id is found once and its options raise no warning") {
+    const CapturedLog log;
+    const int loads = dvv::test::duplicate_module_loads.load();
+    const auto registry = dvv::ComponentRegistry::load({.modules = {{"test.mod.dup", {}}}});
+    CHECK(dvv::test::duplicate_module_loads.load() == loads);
+    const auto copies = findModules(registry->modules(), "test.mod.dup");
+    REQUIRE_FALSE(copies.empty());
+    CHECK(registry->module("test.mod.dup") == copies.front());
+    CHECK_FALSE(log.holds("module options for 'test.mod.dup'"));
+}
+
+TEST_CASE("a module that provides an undeclared capability provides nothing") {
+    const auto registry = dvv::ComponentRegistry::load();
+    const dvv::ModuleStatus* undeclared = registry->module("test.mod.undeclared");
+    REQUIRE(undeclared != nullptr);
+    CHECK(undeclared->reason ==
+          "Internal: load() provided undeclared capability 'test.undeclared'");
+    CHECK(undeclared->provides.empty());
+    CHECK(undeclared->withheld == std::vector<std::string>{"test.declared"});
+    CHECK_FALSE(registry->capabilities().has("test.declared"));
+    CHECK_FALSE(registry->capabilities().has("test.undeclared"));
+    CHECK(undeclared->facts ==
+          std::vector<dvv::ModuleFact>{{"directory", "/fake/modules/undeclared"}});
+}
+
+TEST_CASE("load logs one line per module, with no reason and no fact") {
+    const CapturedLog log;
+    const auto registry = dvv::ComponentRegistry::load();
+    CHECK(log.holds("module 'test.mod.ready': provides test.ready; withholds test.extra"));
+    CHECK(log.holds("module 'test.mod.complete': provides test.c.one, test.c.two"));
+    CHECK_FALSE(log.holds("module 'test.mod.complete': provides test.c.one, test.c.two;"));
+    CHECK(log.holds("module 'test.mod.options': provides nothing"));
+    CHECK_FALSE(log.holds("module 'test.mod.options': provides nothing;"));
+    CHECK(log.holds("module 'test.mod.throws' threw from load()"));
+    CHECK(log.holds("module 'test.mod.throws': provides nothing; withholds test.thrown"));
+    CHECK(log.holds("module 'test.mod.throws_other' threw from load()"));
+    CHECK(log.count("module id 'test.mod.dup' is registered more than once") == 1);
+    CHECK(log.count("module 'test.mod.dup': provides nothing; withholds test.dup") == 2);
+    CHECK(log.holds(
+        "module 'test.mod.undeclared' provided 'test.undeclared', which its info() does not list"));
+    CHECK(log.holds("module 'test.mod.undeclared': provides nothing; withholds test.declared"));
+    // No reason, no fact and no exception text.
+    CHECK_FALSE(log.holds("test.extra is switched off"));
+    CHECK_FALSE(log.holds("stray text"));
+    CHECK_FALSE(log.holds("unknown exception"));
+    CHECK_FALSE(log.holds("/fake/modules"));  // the directory facts and the exception text
 }
