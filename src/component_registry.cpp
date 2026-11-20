@@ -61,6 +61,22 @@ std::string internalReason(std::string_view what, std::string_view detail) {
     return std::format("{}: {}: {}", errcName(Errc::Internal), what, detail);
 }
 
+// Calls on_run(first, last) for each run of two or more entries with the same id in `entries`,
+// which is sorted by id_of.
+template <class Entries, class IdOf, class OnRun>
+void forEachDuplicateRun(Entries& entries, IdOf id_of, OnRun on_run) {
+    for (auto first = std::ranges::begin(entries); first != std::ranges::end(entries);) {
+        const std::string_view id = id_of(*first);
+        const auto last = std::ranges::find_if(
+            first, std::ranges::end(entries), [id](std::string_view other) { return other != id; },
+            id_of);
+        if (std::distance(first, last) > 1) {
+            on_run(first, last);
+        }
+        first = last;
+    }
+}
+
 // The status of a module whose load() returned `result`: provides and withheld follow
 // info.produces, each name once.
 ModuleStatus moduleStatus(const ModuleInfo& info, ModuleLoad result) {
@@ -169,18 +185,14 @@ std::unique_ptr<ComponentRegistry> ComponentRegistry::load(const ModuleOptions& 
 
     // Registration order across translation units is unspecified and a load has side effects, so
     // no copy of a duplicated id runs.
-    for (auto first = registered.begin(); first != registered.end();) {
-        const auto last = std::ranges::find_if(
-            first, registered.end(),
-            [&](const Registered& other) { return other.info.id != first->info.id; });
-        if (std::distance(first, last) > 1) {
+    forEachDuplicateRun(
+        registered, [](const Registered& module) { return module.info.id; },
+        [](auto first, auto last) {
             DVV_LOG_ERROR("module id '{}' is registered more than once", first->info.id);
             for (auto copy = first; copy != last; ++copy) {
                 copy->duplicated = true;
             }
-        }
-        first = last;
-    }
+        });
 
     // A module switched off at build time is not an error.
     for (const std::string& id : options.modules | std::views::keys) {
@@ -256,19 +268,15 @@ std::vector<ComponentRegistry::Entry> ComponentRegistry::probeComponents(const C
     std::ranges::stable_sort(entries, {}, [](const Entry& entry) { return entry.status.info.id; });
     // Registration order across translation units is unspecified, so no copy of a duplicated id
     // may win: all of them are unavailable.
-    for (auto first = entries.begin(); first != entries.end();) {
-        const auto last = std::ranges::find_if(first, entries.end(), [&](const Entry& entry) {
-            return entry.status.info.id != first->status.info.id;
-        });
-        if (std::distance(first, last) > 1) {
+    forEachDuplicateRun(
+        entries, [](const Entry& entry) { return entry.status.info.id; },
+        [](auto first, auto last) {
             DVV_LOG_ERROR("component id '{}' is registered more than once", first->status.info.id);
             for (auto entry = first; entry != last; ++entry) {
                 entry->status.unavailable = Unavailable{
                     internalReason("duplicate component id", std::string(first->status.info.id))};
             }
-        }
-        first = last;
-    }
+        });
     return entries;
 }
 

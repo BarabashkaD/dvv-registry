@@ -81,17 +81,25 @@ DVV_REGISTER_MODULE(OptionsModule);
 std::atomic<int> counting_loads{0};
 std::atomic<int> counting_releases{0};
 
-// Produces nothing; counts its loads, and its handle's deleter counts the releases.
+// A module state whose end counts a release.
+class CountedState {
+public:
+    CountedState() = default;
+    CountedState(const CountedState&) = delete;
+    CountedState& operator=(const CountedState&) = delete;
+    CountedState(CountedState&&) = delete;
+    CountedState& operator=(CountedState&&) = delete;
+    ~CountedState() { ++counting_releases; }
+};
+
+// Produces nothing; counts its loads, and the end of its state counts the releases.
 struct CountingModule {
     static dvv::ModuleInfo info() noexcept {
         return {.id = "test.mod.counting", .name = "Counting"};
     }
     static dvv::ModuleLoad load(const dvv::ParameterValues& /*options*/) {
         ++counting_loads;
-        return {.handle = std::shared_ptr<int>(new int(0), [](const int* state) {
-                    ++counting_releases;
-                    delete state;
-                })};
+        return {.handle = std::make_shared<CountedState>()};
     }
 };
 
@@ -241,19 +249,29 @@ decltype(auto) withModuleStates(Use&& use) {
 // Set when an ordered handle's release could not be appended to module_states.released.
 std::atomic<bool> release_unrecorded{false};
 
-// A handle whose release appends `name` to module_states.released. A deleter must not throw, so a
-// release it cannot append sets release_unrecorded instead.
+// A module state whose end appends its name to module_states.released. A destructor must not
+// throw, so an end it cannot append sets release_unrecorded instead.
+class OrderedState {
+public:
+    explicit OrderedState(std::string name) : name_(std::move(name)) {}
+    OrderedState(const OrderedState&) = delete;
+    OrderedState& operator=(const OrderedState&) = delete;
+    OrderedState(OrderedState&&) = delete;
+    OrderedState& operator=(OrderedState&&) = delete;
+    ~OrderedState() {
+        try {
+            withModuleStates([this](ModuleStates& states) { states.released.push_back(name_); });
+        } catch (...) {
+            release_unrecorded = true;
+        }
+    }
+
+private:
+    std::string name_;
+};
+
 std::shared_ptr<void> ordered(std::string name) {
-    return std::shared_ptr<std::string>(
-        new std::string(std::move(name)), [](const std::string* released) noexcept {
-            try {
-                withModuleStates(
-                    [released](ModuleStates& states) { states.released.push_back(*released); });
-            } catch (...) {
-                release_unrecorded = true;
-            }
-            delete released;
-        });
+    return std::make_shared<OrderedState>(std::move(name));
 }
 
 dvv::ModuleLoad UndeclaredModule::load(const dvv::ParameterValues& /*options*/) {
@@ -428,18 +446,33 @@ struct NoLoad {
     static dvv::ModuleInfo info() noexcept { return {.id = "test.mod.no_load"}; }
 };
 
-// A non-null handle whose release appends `name` to `log`. A deleter must not throw, so a release
-// it cannot append sets `unrecorded` instead.
+// A state whose end appends its name to `log`. A destructor must not throw, so an end it cannot
+// append sets `unrecorded` instead.
+class TrackedState {
+public:
+    TrackedState(std::string name, std::vector<std::string>& log, bool& unrecorded)
+        : name_(std::move(name)), log_(&log), unrecorded_(&unrecorded) {}
+    TrackedState(const TrackedState&) = delete;
+    TrackedState& operator=(const TrackedState&) = delete;
+    TrackedState(TrackedState&&) = delete;
+    TrackedState& operator=(TrackedState&&) = delete;
+    ~TrackedState() {
+        try {
+            log_->push_back(name_);
+        } catch (...) {
+            *unrecorded_ = true;
+        }
+    }
+
+private:
+    std::string name_;
+    std::vector<std::string>* log_;
+    bool* unrecorded_;
+};
+
+// A non-null handle whose release appends `name` to `log`.
 std::shared_ptr<void> tracked(std::string name, std::vector<std::string>& log, bool& unrecorded) {
-    return std::shared_ptr<std::string>(new std::string(std::move(name)),
-                                        [&log, &unrecorded](const std::string* released) noexcept {
-                                            try {
-                                                log.push_back(*released);
-                                            } catch (...) {
-                                                unrecorded = true;
-                                            }
-                                            delete released;
-                                        });
+    return std::make_shared<TrackedState>(std::move(name), log, unrecorded);
 }
 
 template <class S>

@@ -113,6 +113,7 @@ namespace detail {
 class ModuleRegistrationNode final {
 public:
     template <class T>
+        requires Module<T>
     explicit ModuleRegistrationNode(std::type_identity<T> type) noexcept;
 
     ModuleRegistrationNode(const ModuleRegistrationNode&) = delete;
@@ -136,6 +137,7 @@ private:
 };
 
 template <class T>
+    requires Module<T>
 ModuleRegistrationNode::ModuleRegistrationNode(std::type_identity<T> /*type*/) noexcept
     : ModuleRegistrationNode([]() noexcept { return T::info(); },
                              [](const ParameterValues& options) { return T::load(options); }) {}

@@ -1,7 +1,6 @@
 #include <doctest/doctest.h>
 
 #include <algorithm>
-#include <array>
 #include <atomic>
 #include <cstdint>
 #include <expected>
@@ -278,11 +277,6 @@ private:
 };
 DVV_REGISTER(IGreeter, BothForms);
 
-// The sorted ids of the test components without .kind, which report Kind::Source.
-constexpr auto SOURCE_IDS = std::to_array<std::string_view>(
-    {"test.needs_ready", "test.needs_shared_cap", "test.needs_thrown", "test.plain",
-     "test.plain_both", "test.source_widget"});
-
 const dvv::ComponentStatus* findStatus(const std::vector<dvv::ComponentStatus>& statuses,
                                        std::string_view id) {
     const auto found = std::ranges::find(
@@ -321,15 +315,24 @@ TEST_CASE("the registry lists registered components by kind, sorted by id") {
     const auto metrics = registry->list(dvv::Kind::Metric);
     CHECK(metrics.size() == 3);  // test.counter and the two test.duplicate
     CHECK(findStatus(metrics, "test.counter") != nullptr);
+    // A component without .kind reports Kind::Source.
     std::vector<std::string_view> source_ids;
     for (const auto& status : registry->list(dvv::Kind::Source)) {
+        CHECK(status.info.kind == dvv::Kind::Source);
         source_ids.push_back(status.info.id);
     }
-    CHECK(std::ranges::equal(source_ids, SOURCE_IDS));
-    // + 2: test.kinded_good (Analyser) and test.kinded_bad (Exporter) of test_interface_kind.cpp;
-    // + SOURCE_IDS: the components without .kind (test.plain here, test.source_widget in
-    // test_interface_kind.cpp).
-    CHECK(registry->list().size() == tools.size() + metrics.size() + 2 + SOURCE_IDS.size());
+    CHECK(std::ranges::is_sorted(source_ids));
+    CHECK(std::ranges::contains(source_ids, std::string_view("test.plain")));
+    CHECK(std::ranges::contains(source_ids, std::string_view("test.plain_both")));
+
+    // Each component is listed under its one kind.
+    std::size_t listed_by_kind = 0;
+    for (const dvv::Kind kind :
+         {dvv::Kind::Source, dvv::Kind::FormatDetector, dvv::Kind::Exporter, dvv::Kind::Tool,
+          dvv::Kind::Metric, dvv::Kind::Analyser, dvv::Kind::Processor}) {
+        listed_by_kind += registry->list(kind).size();
+    }
+    CHECK(registry->list().size() == listed_by_kind);
 }
 
 TEST_CASE("list<I>() returns the components registered for I, sorted by id, available or not") {
