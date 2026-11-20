@@ -427,11 +427,16 @@ struct NoLoad {
     static dvv::ModuleInfo info() noexcept { return {.id = "test.mod.no_load"}; }
 };
 
-// A non-null handle whose release appends `name` to `log`.
-std::shared_ptr<void> tracked(std::string name, std::vector<std::string>& log) {
+// A non-null handle whose release appends `name` to `log`. A deleter must not throw, so a release
+// it cannot append sets `unrecorded` instead.
+std::shared_ptr<void> tracked(std::string name, std::vector<std::string>& log, bool& unrecorded) {
     return std::shared_ptr<std::string>(new std::string(std::move(name)),
-                                        [&log](const std::string* released) {
-                                            log.push_back(*released);
+                                        [&log, &unrecorded](const std::string* released) noexcept {
+                                            try {
+                                                log.push_back(*released);
+                                            } catch (...) {
+                                                unrecorded = true;
+                                            }
                                             delete released;
                                         });
 }
@@ -460,11 +465,12 @@ TEST_CASE("a module status is available when it provides a capability") {
 
 TEST_CASE("ModuleHandles releases in reverse order") {
     std::vector<std::string> log;
+    bool unrecorded = false;
     {
         auto source = std::make_unique<dvv::detail::ModuleHandles>();
-        source->add(tracked("a", log));
-        source->add(tracked("b", log));
-        source->add(tracked("c", log));
+        source->add(tracked("a", log, unrecorded));
+        source->add(tracked("b", log, unrecorded));
+        source->add(tracked("c", log, unrecorded));
         source->add(nullptr);
         {
             dvv::detail::ModuleHandles moved(std::move(*source));
@@ -474,6 +480,7 @@ TEST_CASE("ModuleHandles releases in reverse order") {
         CHECK(log == std::vector<std::string>{"c", "b", "a"});  // moved-to releases all, in reverse
     }
     CHECK(log.size() == 3);  // nothing released twice
+    CHECK_FALSE(unrecorded);
 }
 
 TEST_CASE("load runs every module and probes the components with what they provide") {
