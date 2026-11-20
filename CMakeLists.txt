@@ -32,6 +32,7 @@ add_library(dvv_registry STATIC
     src/capabilities.cpp
     src/component_info.cpp
     src/component_registry.cpp
+    src/module.cpp
     src/parameters.cpp)
 add_library(dvv::registry ALIAS dvv_registry)
 set_target_properties(dvv_registry PROPERTIES EXPORT_NAME registry)

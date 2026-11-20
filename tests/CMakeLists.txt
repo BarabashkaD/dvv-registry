@@ -5,6 +5,7 @@ add_executable(dvv_registry_tests
     test_capabilities.cpp
     test_component_registry.cpp
     test_interface_kind.cpp
+    test_modules.cpp
     test_parameter_io.cpp
     test_parameters.cpp)
 target_link_libraries(dvv_registry_tests PRIVATE dvv::registry doctest::doctest)
