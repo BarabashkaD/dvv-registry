@@ -22,6 +22,7 @@
 #include <new>
 #include <optional>
 #include <source_location>
+#include <span>
 #include <string_view>
 #include <type_traits>
 #include <typeinfo>
@@ -32,6 +33,7 @@
 #include "dvv/base/lifetime.h"
 #include "dvv/registry/capabilities.h"
 #include "dvv/registry/component_info.h"
+#include "dvv/registry/module.h"
 #include "dvv/registry/parameters.h"
 
 namespace dvv {
@@ -146,18 +148,44 @@ class ComponentRegistry final : public Managed<ComponentRegistry> {
         const detail::RegistrationNode* registration;
         ComponentStatus status;
     };
+    struct Parts {
+        std::vector<Entry> entries{};         // sorted by id
+        std::vector<ModuleStatus> modules{};  // sorted by id
+        Capabilities capabilities{};          // holds a vector: moves without throwing
+        detail::ModuleHandles handles{};      // in load order
+    };
 
 public:
+    // Runs no module: probes with `caps` as given. For tests and hosts that state their
+    // capabilities; modules() is empty and capabilities() is `caps`. `where` is the creation site
+    // that leak reports show: the caller.
     // Runs every registered component's schema() and probe(caps) once. A component whose schema()
     // or probe() throws is unavailable with an "Internal: ..." reason, and so is every component
     // whose id is registered more than once. A component whose info().kind differs from
     // InterfaceKind<I> of its interface is unavailable without being probed.
-    // `where` is the creation site that leak reports show: the caller.
     [[nodiscard]] static std::unique_ptr<ComponentRegistry> create(
         const Capabilities& caps, std::source_location where = std::source_location::current());
 
-    // For create(caps) only (Entry is private).
-    ComponentRegistry(CreationKey<ComponentRegistry> key, std::vector<Entry> entries) noexcept;
+    // Runs every registered module's load(options.modules[id]) in id order, probes every
+    // component with the union of what the modules provide, and keeps each module's status and
+    // state. A module whose load() throws, whose id is registered more than once, or that
+    // provides a capability its info() does not list provides nothing. Call from main, never
+    // during static initialisation. Each call runs every module again: a module whose resource
+    // is process-wide keeps it once (FFmpeg does). `where` as for create().
+    [[nodiscard]] static std::unique_ptr<ComponentRegistry> load(
+        const ModuleOptions& options = {},
+        std::source_location where = std::source_location::current());
+
+    // For create() and load() only (Parts is private; a CreationKey comes only from the registry).
+    ComponentRegistry(CreationKey<ComponentRegistry> key, Parts parts) noexcept;
+
+    // Modules sorted by id (copies of a duplicated id are all listed); empty after create().
+    // Valid while the registry lives.
+    [[nodiscard]] std::span<const ModuleStatus> modules() const noexcept;
+    // The first module with `id`; nullptr when none is registered. Valid while the registry lives.
+    [[nodiscard]] const ModuleStatus* module(std::string_view id) const noexcept;
+    // The capabilities the components were probed with.
+    [[nodiscard]] const Capabilities& capabilities() const noexcept;
 
     // Components sorted by id.
     [[nodiscard]] std::vector<ComponentStatus> list() const;
@@ -215,6 +243,8 @@ private:
         }
     }
 
+    // Runs every registered component's schema() and probe(caps) once (see create()).
+    [[nodiscard]] static std::vector<Entry> probeComponents(const Capabilities& caps);
     [[nodiscard]] Result<Prepared> prepare(std::string_view id, const std::type_info& interface,
                                            const ParameterValues& values) const;
     [[nodiscard]] std::vector<ComponentStatus> listFor(const std::type_info& interface) const;
@@ -222,7 +252,10 @@ private:
     [[nodiscard]] Error constructionFailed(std::string_view id);
 
     mutable std::mutex mutex_;
-    std::vector<Entry> entries_;  // sorted by id
+    std::vector<Entry> entries_;         // sorted by id
+    std::vector<ModuleStatus> modules_;  // immutable after construction
+    Capabilities capabilities_;          // immutable after construction
+    detail::ModuleHandles handles_;      // declared last: released first
 };
 
 template <class I>

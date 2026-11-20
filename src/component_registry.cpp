@@ -60,10 +60,75 @@ std::string internalReason(std::string_view what, std::string_view detail) {
     return std::format("{}: {}: {}", errcName(Errc::Internal), what, detail);
 }
 
+// The status of a module whose load() returned `result`: provides and withheld follow
+// info.produces, each name once.
+ModuleStatus moduleStatus(const ModuleInfo& info, ModuleLoad result) {
+    ModuleStatus status{.info = info};
+    for (const std::string_view name : info.produces) {
+        if (std::ranges::contains(status.provides, name) ||
+            std::ranges::contains(status.withheld, name)) {
+            continue;
+        }
+        if (std::ranges::contains(result.provides, name)) {
+            status.provides.emplace_back(name);
+        } else {
+            status.withheld.emplace_back(name);
+        }
+    }
+    // An empty reason means "complete".
+    if (!status.withheld.empty()) {
+        status.reason = std::move(result.reason);
+    }
+    status.facts = std::move(result.facts);
+    return status;
+}
+
 }  // namespace
 
 std::unique_ptr<ComponentRegistry> ComponentRegistry::create(const Capabilities& caps,
                                                              std::source_location where) {
+    Parts parts{.entries = probeComponents(caps), .modules = {}, .capabilities = caps};
+    return std::make_unique<ComponentRegistry>(
+        CreationKey<ComponentRegistry>(
+            LifetimeRegistry::instance().issue<ComponentRegistry>(NO_OWNER, where)),
+        std::move(parts));
+}
+
+std::unique_ptr<ComponentRegistry> ComponentRegistry::load(const ModuleOptions& options,
+                                                           std::source_location where) {
+    struct Registered {
+        const detail::ModuleRegistrationNode* node;
+        ModuleInfo info;
+    };
+    std::vector<Registered> registered;
+    for (const detail::ModuleRegistrationNode* node = detail::ModuleRegistrationNode::list_head;
+         node != nullptr; node = node->next_) {
+        registered.push_back({node, node->info_()});
+    }
+    std::ranges::stable_sort(registered, {},
+                             [](const Registered& module) { return module.info.id; });
+
+    Parts parts;
+    const ParameterValues no_values;
+    for (const Registered& module : registered) {
+        const auto found = options.modules.find(module.info.id);
+        const ParameterValues& values = found != options.modules.end() ? found->second : no_values;
+        parts.modules.push_back(moduleStatus(module.info, module.node->load_(values)));
+    }
+    for (const ModuleStatus& status : parts.modules) {
+        for (const std::string& name : status.provides) {
+            parts.capabilities.add(name);
+        }
+    }
+    parts.entries = probeComponents(parts.capabilities);
+
+    return std::make_unique<ComponentRegistry>(
+        CreationKey<ComponentRegistry>(
+            LifetimeRegistry::instance().issue<ComponentRegistry>(NO_OWNER, where)),
+        std::move(parts));
+}
+
+std::vector<ComponentRegistry::Entry> ComponentRegistry::probeComponents(const Capabilities& caps) {
     std::vector<Entry> entries;
     for (const detail::RegistrationNode* node = detail::RegistrationNode::list_head;
          node != nullptr; node = node->next_) {
@@ -113,16 +178,29 @@ std::unique_ptr<ComponentRegistry> ComponentRegistry::create(const Capabilities&
         }
         first = last;
     }
-
-    return std::make_unique<ComponentRegistry>(
-        CreationKey<ComponentRegistry>(
-            LifetimeRegistry::instance().issue<ComponentRegistry>(NO_OWNER, where)),
-        std::move(entries));
+    return entries;
 }
 
-ComponentRegistry::ComponentRegistry(CreationKey<ComponentRegistry> key,
-                                     std::vector<Entry> entries) noexcept
-    : Managed(std::move(key)), entries_(std::move(entries)) {}
+ComponentRegistry::ComponentRegistry(CreationKey<ComponentRegistry> key, Parts parts) noexcept
+    : Managed(std::move(key)),
+      entries_(std::move(parts.entries)),
+      modules_(std::move(parts.modules)),
+      capabilities_(std::move(parts.capabilities)),
+      handles_(std::move(parts.handles)) {}
+
+std::span<const ModuleStatus> ComponentRegistry::modules() const noexcept {
+    return modules_;
+}
+
+const ModuleStatus* ComponentRegistry::module(std::string_view id) const noexcept {
+    const auto found =
+        std::ranges::find(modules_, id, [](const ModuleStatus& status) { return status.info.id; });
+    return found != modules_.end() ? &*found : nullptr;
+}
+
+const Capabilities& ComponentRegistry::capabilities() const noexcept {
+    return capabilities_;
+}
 
 std::vector<ComponentStatus> ComponentRegistry::list() const {
     std::lock_guard lock(mutex_);
