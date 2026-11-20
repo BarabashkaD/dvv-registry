@@ -21,6 +21,11 @@ RegistrationNode::RegistrationNode(const std::type_info& interface,
     list_head = this;
 }
 
+const ParameterSchema& noParameters() noexcept {
+    static const ParameterSchema NONE;
+    return NONE;
+}
+
 }  // namespace detail
 
 namespace {

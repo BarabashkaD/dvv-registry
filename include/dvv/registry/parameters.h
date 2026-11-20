@@ -2,7 +2,8 @@
 
 // Component parameters (spec §9.2): a ParameterSchema describes them for the GUI (property grid),
 // the CLI (--param name=value, parse/format) and session files (toJson/fromJson);
-// ParameterValues carries the chosen values.
+// ParameterValues carries the chosen values. ParameterValues also carries module options
+// (ComponentRegistry::load).
 
 #include <cstddef>
 #include <cstdint>
@@ -47,11 +48,15 @@ using ParameterValue = std::variant<std::int64_t, double, bool, std::string, Ran
 using ParameterValues = std::map<std::string, ParameterValue, std::less<>>;
 
 // Same order as the alternatives of ParameterValue and Parameter::spec.
+// Deprecated (0.2.0): with ParameterSchema; removed in 1.0.0.
 enum class ParameterType : std::uint8_t { Int, Float, Bool, Enum, Range, Colour };
 
+// Deprecated (0.2.0): with ParameterSchema; removed in 1.0.0.
 [[nodiscard]] std::string_view parameterTypeName(ParameterType type) noexcept;
+// Deprecated (0.2.0): with ParameterSchema; removed in 1.0.0.
 [[nodiscard]] ParameterType parameterTypeOf(const ParameterValue& value) noexcept;
 
+// Deprecated (0.2.0): with ParameterSchema; removed in 1.0.0.
 struct IntParameter {
     std::int64_t min = std::numeric_limits<std::int64_t>::min();
     std::int64_t max = std::numeric_limits<std::int64_t>::max();
@@ -59,34 +64,41 @@ struct IntParameter {
 };
 
 // min, max and every value are finite.
+// Deprecated (0.2.0): with ParameterSchema; removed in 1.0.0.
 struct FloatParameter {
     double min = std::numeric_limits<double>::lowest();
     double max = std::numeric_limits<double>::max();
     double defaultValue = 0.0;
 };
 
+// Deprecated (0.2.0): with ParameterSchema; removed in 1.0.0.
 struct BoolParameter {
     bool defaultValue = false;
 };
 
 // Options are non-empty, unique and without white space at either end (parse() trims the text);
 // the default is one of them.
+// Deprecated (0.2.0): with ParameterSchema; removed in 1.0.0.
 struct EnumParameter {
     std::vector<std::string> options;
     std::string defaultValue;
 };
 
 // Both ends lie in [min, max] and low <= high.
+// Deprecated (0.2.0): with ParameterSchema; removed in 1.0.0.
 struct RangeParameter {
     double min = 0.0;
     double max = 1.0;
     Range defaultValue{.low = 0.0, .high = 1.0};
 };
 
+// Deprecated (0.2.0): with ParameterSchema; removed in 1.0.0.
 struct ColourParameter {
     Colour defaultValue;
 };
 
+// One parameter of a ParameterSchema.
+// Deprecated (0.2.0): with ParameterSchema; removed in 1.0.0.
 struct Parameter {
     std::string name;   // key in ParameterValues, the CLI and session files: [A-Za-z0-9_.-]+
     std::string label;  // for people
@@ -127,6 +139,8 @@ static_assert(detail::indexesAlternatives<ParameterType::Int, std::int64_t, IntP
               "ParameterType must follow the order of ParameterValue and Parameter::spec");
 
 // Immutable description of a component's parameters, built with ParameterSchema::Builder.
+// Deprecated (0.2.0): no component declares a parameter (a component's schema() is optional);
+// removed in 1.0.0.
 class ParameterSchema {
 public:
     class Builder;
@@ -176,6 +190,7 @@ private:
 // Collects parameter declarations; build() checks them. Invalid declarations (bad or duplicate
 // names, min above max, a default that does not fit) are programming errors: build() returns
 // Errc::Internal naming the first one.
+// Deprecated (0.2.0): with ParameterSchema; removed in 1.0.0.
 class ParameterSchema::Builder {
 public:
     Builder& addInt(std::string name, std::string label, IntParameter spec);

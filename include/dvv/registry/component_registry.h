@@ -36,16 +36,29 @@
 
 namespace dvv {
 
+class ComponentRegistry;
+
+namespace detail {
+
+template <class T>
+concept DeclaresSchema = requires { T::schema(); };
+template <class T>
+concept TakesParameterValues =
+    std::is_constructible_v<T, CreationKey<ComponentRegistry>, const ParameterValues&>;
+// The schema of a component without schema(): no parameters. Deprecated with ParameterSchema.
+[[nodiscard]] const ParameterSchema& noParameters() noexcept;
+
+}  // namespace detail
+
 // T implements interface I as a component (spec §9.2). info() must not throw: the registry needs
-// the id to report anything else about the component.
+// the id to report anything else about the component. schema() is optional (deprecated).
 template <class T, class I>
 concept Component = std::derived_from<T, I> && requires(const Capabilities& caps) {
     { T::info() } noexcept -> std::same_as<ComponentInfo>;
-    { T::schema() } -> std::same_as<const ParameterSchema&>;
     { T::probe(caps) } -> std::same_as<std::expected<void, Unavailable>>;
-};
-
-class ComponentRegistry;
+} && (!detail::DeclaresSchema<T> || requires {
+                        { T::schema() } -> std::same_as<const ParameterSchema&>;
+                    });
 
 namespace detail {
 
@@ -101,7 +114,9 @@ private:
 // What the registry knows about one component.
 struct ComponentStatus {
     ComponentInfo info;
-    const ParameterSchema* schema = nullptr;  // null when schema() threw
+    // Null when schema() threw; empty for a component without schema(). Deprecated (0.2.0): with
+    // ParameterSchema; removed in 1.0.0.
+    const ParameterSchema* schema = nullptr;
     // Empty when the component can be created.
     std::optional<Unavailable> unavailable = std::nullopt;
 
@@ -129,12 +144,22 @@ public:
     [[nodiscard]] std::vector<ComponentStatus> list() const;
     [[nodiscard]] std::vector<ComponentStatus> list(Kind kind) const;
 
-    // Creates component `id` with `values` validated against its schema and completed with the
-    // defaults. Errc::Unsupported for an unknown or unavailable id or one with another interface,
-    // Errc::Format for invalid values. std::bad_alloc from the constructor becomes
-    // Errc::OutOfMemory and leaves the component available; any other constructor exception becomes
-    // Errc::Internal and makes the component unavailable for this registry's lifetime. `where` is
-    // the creation site that leak reports show: the caller.
+    // Creates component `id`. Errc::Unsupported for an unknown or unavailable id or one with
+    // another interface. std::bad_alloc from the constructor becomes Errc::OutOfMemory and leaves
+    // the component available; any other constructor exception becomes Errc::Internal and makes the
+    // component unavailable for this registry's lifetime. `where` is the creation site that leak
+    // reports show: the caller. A constrained template, so a braced `{}` cannot deduce it and
+    // createComponent<I>(id, {}) keeps the 0.1.1 form.
+    template <class I, std::same_as<std::source_location> Where>
+    [[nodiscard]] Result<std::unique_ptr<I>> createComponent(std::string_view id, Where where) {
+        return createComponent<I>(id, ParameterValues{}, where);
+    }
+
+    // As createComponent(id, where), with `values` validated against the component's schema and
+    // completed with the defaults: Errc::Format for invalid values.
+    // Deprecated (0.2.0): the values argument; use createComponent(id, where) or
+    // createComponent(id). Removed in 1.0.0, where createComponent(id, where = current()) is the
+    // one form.
     template <class I>
     [[nodiscard]] Result<std::unique_ptr<I>> createComponent(
         std::string_view id, const ParameterValues& values = {},
@@ -150,11 +175,19 @@ private:
     };
 
     template <class I, class T>
-    static std::unique_ptr<I> construct(ObjectId owner, const ParameterValues& values,
+    // [[maybe_unused]]: MSVC's C4100 (/W4 /WX) fires for a parameter used only in a discarded
+    // if-constexpr branch.
+    static std::unique_ptr<I> construct(ObjectId owner,
+                                        [[maybe_unused]] const ParameterValues& values,
                                         std::source_location where) {
-        return std::make_unique<T>(
-            CreationKey<ComponentRegistry>(LifetimeRegistry::instance().issue<T>(owner, where)),
-            values);
+        if constexpr (detail::TakesParameterValues<T>) {
+            return std::make_unique<T>(
+                CreationKey<ComponentRegistry>(LifetimeRegistry::instance().issue<T>(owner, where)),
+                values);
+        } else {
+            return std::make_unique<T>(CreationKey<ComponentRegistry>(
+                LifetimeRegistry::instance().issue<T>(owner, where)));
+        }
     }
 
     [[nodiscard]] Result<Prepared> prepare(std::string_view id, const std::type_info& interface,
@@ -179,7 +212,13 @@ detail::ComponentRegistration<I>::ComponentRegistration(std::type_identity<T> /*
               }
           }(),
           RegistrationHooks{.info = []() noexcept { return T::info(); },
-                            .schema = []() -> const ParameterSchema& { return T::schema(); },
+                            .schema = []() -> const ParameterSchema& {
+                                if constexpr (DeclaresSchema<T>) {
+                                    return T::schema();
+                                } else {
+                                    return noParameters();
+                                }
+                            },
                             .probe = [](const Capabilities& caps) { return T::probe(caps); }}),
       create_(&ComponentRegistry::construct<I, T>) {}
 
@@ -207,22 +246,27 @@ Result<std::unique_ptr<I>> ComponentRegistry::createComponent(std::string_view i
 // .cpp, followed by a semicolon. Checks the rules of spec §9.2 and §9.4 at compile time.
 // Interface and Type are type names (template arguments), which cannot be parenthesized.
 // NOLINTBEGIN(bugprone-macro-parentheses)
-#define DVV_REGISTER(Interface, Type)                                                         \
-    static_assert(std::is_final_v<Type>, "DVV_REGISTER: " #Type " must be final");            \
-    static_assert(std::derived_from<Type, ::dvv::Managed<Type>>,                              \
-                  "DVV_REGISTER: " #Type " must derive dvv::Managed<" #Type ">");             \
-    static_assert(!std::is_copy_constructible_v<Type> && !std::is_move_constructible_v<Type>, \
-                  "DVV_REGISTER: " #Type " must not be copy or move constructible");          \
-    static_assert(std::has_virtual_destructor_v<Interface>,                                   \
-                  "DVV_REGISTER: " #Interface " needs a virtual destructor");                 \
-    static_assert(::dvv::Component<Type, Interface>,                                          \
-                  "DVV_REGISTER: " #Type " must implement " #Interface                        \
-                  " and provide static info() noexcept, schema() and probe()");               \
-    static_assert(std::is_constructible_v<Type, ::dvv::CreationKey<::dvv::ComponentRegistry>, \
-                                          const ::dvv::ParameterValues&>,                     \
-                  "DVV_REGISTER: " #Type                                                      \
-                  " must be constructible from "                                              \
-                  "(dvv::CreationKey<dvv::ComponentRegistry>, const dvv::ParameterValues&)"); \
-    static const ::dvv::detail::ComponentRegistration<Interface> DVV_DETAIL_CONCAT(           \
+#define DVV_REGISTER(Interface, Type)                                                            \
+    static_assert(std::is_final_v<Type>, "DVV_REGISTER: " #Type " must be final");               \
+    static_assert(std::derived_from<Type, ::dvv::Managed<Type>>,                                 \
+                  "DVV_REGISTER: " #Type " must derive dvv::Managed<" #Type ">");                \
+    static_assert(!std::is_copy_constructible_v<Type> && !std::is_move_constructible_v<Type>,    \
+                  "DVV_REGISTER: " #Type " must not be copy or move constructible");             \
+    static_assert(std::has_virtual_destructor_v<Interface>,                                      \
+                  "DVV_REGISTER: " #Interface " needs a virtual destructor");                    \
+    static_assert(::dvv::Component<Type, Interface>,                                             \
+                  "DVV_REGISTER: " #Type " must implement " #Interface                           \
+                  " and provide static info() noexcept and probe()");                            \
+    static_assert(std::is_constructible_v<Type, ::dvv::CreationKey<::dvv::ComponentRegistry>> || \
+                      ::dvv::detail::TakesParameterValues<Type>,                                 \
+                  "DVV_REGISTER: " #Type                                                         \
+                  " must be constructible from "                                                 \
+                  "(dvv::CreationKey<dvv::ComponentRegistry>)");                                 \
+    static_assert(                                                                               \
+        !::dvv::detail::DeclaresSchema<Type> || ::dvv::detail::TakesParameterValues<Type>,       \
+        "DVV_REGISTER: " #Type                                                                   \
+        " declares schema() but is not constructible from "                                      \
+        "(dvv::CreationKey<dvv::ComponentRegistry>, const dvv::ParameterValues&)");              \
+    static const ::dvv::detail::ComponentRegistration<Interface> DVV_DETAIL_CONCAT(              \
         dvv_registration_, __LINE__)(std::type_identity<Type>{})
 // NOLINTEND(bugprone-macro-parentheses)

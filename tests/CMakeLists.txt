@@ -69,9 +69,12 @@ if(NOT DVV_SANITIZE)
         LABELS package)
 endif()
 
-# Compile-fail tests (spec §9.4). Case 0 is the control and must build; cases 1-5 must fail to
-# compile with the expected diagnostic: a forged registry key, construction without a key, and
-# DVV_REGISTER of a class that is not final, takes another authority's key or lacks probe().
+# Compile-fail tests (spec §9.4). Case 0 is the control and must build; cases 1-5, 7 and 8 must
+# fail to compile with the expected diagnostic: a forged registry key, construction without a key,
+# DVV_REGISTER of a class that is not final, takes another authority's key or lacks probe(), of a
+# class with schema() but only the one-argument constructor (7), and of a class without a
+# constructor the registry can call (8). The pattern of case 6 (a module without load()) is listed
+# ahead of the case itself.
 set(compile_fail_source ${CMAKE_CURRENT_SOURCE_DIR}/compile_fail/direct_construction.cpp)
 add_executable(dvv_registry_compile_ok ${compile_fail_source})
 target_compile_definitions(dvv_registry_compile_ok PRIVATE DVV_COMPILE_FAIL_CASE=0)
@@ -83,8 +86,9 @@ else()
     set(compile_fail_patterns "private constructor" "no matching constructor")
 endif()
 list(APPEND compile_fail_patterns
-     "must be final" "must be constructible from" "must implement IWidget")
-foreach(case IN ITEMS 1 2 3 4 5)
+     "must be final" "must be constructible from" "must implement IWidget"
+     "must provide static info" "declares schema" "must be constructible from")
+foreach(case IN ITEMS 1 2 3 4 5 7 8)
     set(target dvv_registry_compile_fail_${case})
     add_executable(${target} EXCLUDE_FROM_ALL ${compile_fail_source})
     target_compile_definitions(${target} PRIVATE DVV_COMPILE_FAIL_CASE=${case})
