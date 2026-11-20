@@ -45,6 +45,17 @@ public:
     [[nodiscard]] virtual int count() const = 0;
 };
 
+// An interface without any component.
+class IUnregistered {
+public:
+    IUnregistered() = default;
+    IUnregistered(const IUnregistered&) = delete;
+    IUnregistered& operator=(const IUnregistered&) = delete;
+    IUnregistered(IUnregistered&&) = delete;
+    IUnregistered& operator=(IUnregistered&&) = delete;
+    virtual ~IUnregistered() = default;
+};
+
 using Key = dvv::CreationKey<dvv::ComponentRegistry>;
 using Probed = std::expected<void, dvv::Unavailable>;
 
@@ -249,7 +260,7 @@ public:
 DVV_REGISTER(IGreeter, Plain);
 
 // The sorted ids of the test components without .kind, which report Kind::Source.
-constexpr auto SOURCE_IDS = std::to_array<std::string_view>({"test.plain"});
+constexpr auto SOURCE_IDS = std::to_array<std::string_view>({"test.plain", "test.source_widget"});
 
 const dvv::ComponentStatus* findStatus(const std::vector<dvv::ComponentStatus>& statuses,
                                        std::string_view id) {
@@ -295,8 +306,22 @@ TEST_CASE("the registry lists registered components by kind, sorted by id") {
     }
     CHECK(std::ranges::equal(source_ids, SOURCE_IDS));
     // + 2: test.kinded_good (Analyser) and test.kinded_bad (Exporter) of test_interface_kind.cpp;
-    // + SOURCE_IDS: the components without .kind (test.plain).
+    // + SOURCE_IDS: the components without .kind (test.plain here, test.source_widget in
+    // test_interface_kind.cpp).
     CHECK(registry->list().size() == tools.size() + metrics.size() + 2 + SOURCE_IDS.size());
+}
+
+TEST_CASE("list<I>() returns the components registered for I, sorted by id, available or not") {
+    const auto registry = dvv::ComponentRegistry::create(dvv::Capabilities{});
+    std::vector<std::string_view> ids;
+    for (const auto& status : registry->list<IGreeter>()) {
+        ids.push_back(status.info.id);
+    }
+    CHECK(ids == std::vector<std::string_view>{"test.bad_alloc", "test.broken_schema",
+                                               "test.gpu_greeter", "test.greeter", "test.plain",
+                                               "test.throwing_constructor", "test.throwing_probe"});
+    CHECK(registry->list<ICounter>().size() == 3);  // no greeter among them
+    CHECK(registry->list<IUnregistered>().empty());
 }
 
 TEST_CASE("probes decide availability and run once per registry") {

@@ -140,8 +140,14 @@ public:
     // For create(caps) only (Entry is private).
     ComponentRegistry(CreationKey<ComponentRegistry> key, std::vector<Entry> entries) noexcept;
 
-    // Components sorted by id: all of them, or those of one kind.
+    // Components sorted by id.
     [[nodiscard]] std::vector<ComponentStatus> list() const;
+    // The components registered for interface I, sorted by id, available or not.
+    template <class I>
+    [[nodiscard]] std::vector<ComponentStatus> list() const {
+        return listFor(typeid(I));
+    }
+    // Deprecated (0.2.0): a component's interface is its category; use list<I>(). Removed in 1.0.0.
     [[nodiscard]] std::vector<ComponentStatus> list(Kind kind) const;
 
     // Creates component `id`. Errc::Unsupported for an unknown or unavailable id or one with
@@ -192,6 +198,7 @@ private:
 
     [[nodiscard]] Result<Prepared> prepare(std::string_view id, const std::type_info& interface,
                                            const ParameterValues& values) const;
+    [[nodiscard]] std::vector<ComponentStatus> listFor(const std::type_info& interface) const;
     // Called from a catch block: disables `id` and describes the current exception.
     [[nodiscard]] Error constructionFailed(std::string_view id);
 

@@ -131,6 +131,17 @@ std::vector<ComponentStatus> ComponentRegistry::list(Kind kind) const {
     return statuses;
 }
 
+std::vector<ComponentStatus> ComponentRegistry::listFor(const std::type_info& interface) const {
+    std::lock_guard lock(mutex_);
+    std::vector<ComponentStatus> statuses;
+    for (const Entry& entry : entries_) {
+        if (*entry.registration->interface_ == interface) {
+            statuses.push_back(entry.status);
+        }
+    }
+    return statuses;
+}
+
 Result<ComponentRegistry::Prepared> ComponentRegistry::prepare(
     std::string_view id, const std::type_info& interface, const ParameterValues& values) const {
     const detail::RegistrationNode* registration = nullptr;

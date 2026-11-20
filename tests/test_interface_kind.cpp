@@ -38,7 +38,21 @@ public:
     virtual ~IPlainWidget() = default;
 };
 
+// An interface whose components must report Kind::Source.
+class ISourceWidget {
+public:
+    ISourceWidget() = default;
+    ISourceWidget(const ISourceWidget&) = delete;
+    ISourceWidget& operator=(const ISourceWidget&) = delete;
+    ISourceWidget(ISourceWidget&&) = delete;
+    ISourceWidget& operator=(ISourceWidget&&) = delete;
+    virtual ~ISourceWidget() = default;
+};
+
 }  // namespace
+
+template <>
+struct dvv::InterfaceKind<ISourceWidget> : std::integral_constant<dvv::Kind, dvv::Kind::Source> {};
 
 template <>
 struct dvv::InterfaceKind<IKindedWidget> : std::integral_constant<dvv::Kind, dvv::Kind::Analyser> {
@@ -90,6 +104,18 @@ public:
 };
 DVV_REGISTER(IKindedWidget, KindedBad);
 
+// The final form: no schema(), no .kind (so it reports Kind::Source).
+class SourceWidget final : public ISourceWidget, public dvv::Managed<SourceWidget> {
+public:
+    explicit SourceWidget(Key key) noexcept : Managed(std::move(key)) {}
+
+    static dvv::ComponentInfo info() noexcept {
+        return {.id = "test.source_widget", .name = "Source widget"};
+    }
+    static Probed probe(const dvv::Capabilities& /*caps*/) { return {}; }
+};
+DVV_REGISTER(ISourceWidget, SourceWidget);
+
 const dvv::ComponentStatus* findStatus(const std::vector<dvv::ComponentStatus>& statuses,
                                        std::string_view id) {
     for (const auto& status : statuses) {
@@ -138,4 +164,16 @@ TEST_CASE("kind check: interfaces without InterfaceKind are unchanged") {
     static_assert(!dvv::HasInterfaceKind<IPlainWidget>);
     static_assert(dvv::InterfaceKind<IKindedWidget>::value == dvv::Kind::Analyser);
     CHECK(true);
+}
+
+TEST_CASE("a schema-less component without .kind under a Source interface stays available") {
+    const auto registry = dvv::ComponentRegistry::create(dvv::Capabilities{});
+    const auto statuses = registry->list<ISourceWidget>();
+    REQUIRE(statuses.size() == 1);
+    CHECK(statuses.front().info.id == "test.source_widget");
+    CHECK(statuses.front().info.kind == dvv::Kind::Source);
+    CHECK(statuses.front().available());
+
+    const auto created = registry->createComponent<ISourceWidget>("test.source_widget");
+    CHECK(created.has_value());
 }
