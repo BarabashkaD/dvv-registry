@@ -27,7 +27,8 @@ std::expected<void, Unavailable> require(const Capabilities& caps,
                                          std::initializer_list<std::string_view> names) {
     for (const std::string_view name : names) {
         if (!caps.has(name)) {
-            return std::unexpected(Unavailable{std::format("missing capability '{}'", name)});
+            return std::unexpected(
+                Unavailable{std::format("missing capability '{}'", name), std::string(name)});
         }
     }
     return {};
