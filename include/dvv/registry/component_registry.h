@@ -4,8 +4,9 @@
 //
 // A component is a final class implementing one interface I (IMetric, ISource, ...), deriving
 // Managed<Self>, with static info() and probe() and a constructor taking
-// CreationKey<ComponentRegistry> (schema() and the ParameterValues form are deprecated). One line
-// at namespace scope in its .cpp registers it:
+// CreationKey<ComponentRegistry>. Deprecated (0.2.0): a component's schema() and the
+// (CreationKey, const ParameterValues&) constructor; removed in 1.0.0. One line at namespace scope
+// in its .cpp registers it:
 //
 //     DVV_REGISTER(IMetric, PsnrMetric);
 //
@@ -54,7 +55,9 @@ concept TakesParameterValues =
 }  // namespace detail
 
 // T implements interface I as a component (spec §9.2). info() must not throw: the registry needs
-// the id to report anything else about the component. schema() is optional (deprecated).
+// the id to report anything else about the component. schema() is optional.
+// Deprecated (0.2.0): a component's schema() and the (CreationKey, const ParameterValues&)
+// constructor; removed in 1.0.0.
 template <class T, class I>
 concept Component = std::derived_from<T, I> && requires(const Capabilities& caps) {
     { T::info() } noexcept -> std::same_as<ComponentInfo>;
@@ -173,8 +176,9 @@ public:
     // component with the union of what the modules provide, and keeps each module's status and
     // state. A module whose load() throws, whose id is registered more than once, or that
     // provides a capability its info() does not list provides nothing. Call from main, never
-    // during static initialisation. Each call runs every module again: a module whose resource
-    // is process-wide keeps it once (FFmpeg does). `where` as for create().
+    // during static initialisation. Each call runs every module again, and two threads that call
+    // load() run a module's load() at the same time: a module whose resource is process-wide keeps
+    // it once (FFmpeg does). `where` as for create().
     [[nodiscard]] static std::unique_ptr<ComponentRegistry> load(
         const ModuleOptions& options = {},
         std::source_location where = std::source_location::current());

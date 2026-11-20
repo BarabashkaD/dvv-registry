@@ -68,7 +68,9 @@ A capability is a name that one module defines as a constant and provides when i
 #include <string_view>
 
 inline constexpr std::string_view EXAMPLE_CAPABILITY = "example.greeting-ready";
+```
 
+```cpp
 // example_module.cpp, in a static component library
 #include <array>
 #include <string>
@@ -101,9 +103,27 @@ dvv_link_components(my_app greeting)     # never a plain target_link_libraries f
 ```
 
 ```cpp
-auto registry = dvv::ComponentRegistry::load();   // in main, after static init
-auto greeting = registry->createComponent<IGreeting>("example.greeting");
-for (const dvv::ModuleStatus& module : registry->modules()) { /* show module.info.name … */ }
+// main.cpp
+#include <print>
+#include <string>
+
+#include "dvv/registry/component_registry.h"
+#include "greeting.h"   // IGreeting
+
+int main() {
+    // Each module gets its own options, by module id; a module without an entry gets none.
+    auto registry = dvv::ComponentRegistry::load(
+        {.modules = {{"example", {{"greeting", std::string("Hello")}}}}});
+    for (const dvv::ModuleStatus& module : registry->modules()) {
+        std::println("{}: {}", module.info.name, module.available() ? "available" : "unavailable");
+    }
+    if (const dvv::ModuleStatus* example = registry->module("example")) {
+        std::println("Example {}",
+                     example->property(dvv::MODULE_VERSION_PROPERTY).value_or("(no version)"));
+    }
+    auto greeting = registry->createComponent<IGreeting>("example.greeting");
+    return greeting ? 0 : 1;
+}
 ```
 
 `ComponentRegistry::create(capabilities)` runs no module and probes with the capabilities given:
@@ -111,7 +131,8 @@ use it in tests and in hosts that state their capabilities themselves.
 
 ## Rules
 
-`DVV_REGISTER` and `DVV_REGISTER_MODULE` check the first two at compile time, except the ids:
+`DVV_REGISTER` and `DVV_REGISTER_MODULE` check the first two at compile time, except the ids and
+the `produces` list (`load()` checks it):
 
 - A component class is `final`, derives `dvv::Managed<T>` and the interface, and its constructor
   takes `dvv::CreationKey<dvv::ComponentRegistry>`. `info()` is `noexcept` and returns a unique,
@@ -130,6 +151,9 @@ use it in tests and in hosts that state their capabilities themselves.
   order when the registry is destroyed. Components can outlive the registry, so a module whose
   components need its state gives them their own `shared_ptr` to it. The registry stops no running
   work.
+- A module's `load()` may run on several threads at once (two threads loading a registry each), so
+  it is thread-safe, and it never calls `ComponentRegistry::load()`. The handle's deleter runs on
+  the thread that destroys the registry; it must not throw and must not call into the registry.
 - The registry runs each component's `probe()` once. If it throws or fails, the component is listed
   as unavailable with the reason; when a capability is missing, `Unavailable::capability` names it.
   A throwing constructor makes `createComponent()` return `Errc::Internal` and disables the

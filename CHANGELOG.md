@@ -20,6 +20,10 @@ need no parameter schema and no kind.
 - `ComponentRegistry::load(options)`: runs every module's `load()`, probes the components with the
   capabilities the modules provide, and keeps each module's status and state. The state is
   released in reverse load order when the registry is destroyed. `create(caps)` runs no module.
+  `load()` logs one line per module at info level: its id and the capabilities it provides and
+  withholds. An application that built a `Capabilities` set for `create(caps)` calls `load()`
+  instead; the module behind an unavailable component is the one whose `ModuleStatus::withheld`
+  holds the component's `Unavailable::capability`.
 - `ComponentRegistry::modules()`, `module(id)` and `capabilities()`.
 - `Unavailable::capability`: the missing capability; `require()` fills it.
 - `DVV_REGISTER` accepts a component without `schema()` whose constructor takes only
@@ -28,8 +32,10 @@ need no parameter schema and no kind.
 - `list<I>()`: the components registered for interface `I`, sorted by id.
 
 ### Changed
-- `load()` logs one line per module at info level: its id and the capabilities it provides and
-  withholds.
+- `Unavailable` has a second member and `create()` a second, defaulted parameter. A structured
+  binding of `Unavailable` (`auto& [reason] = unavailable`) and taking `&ComponentRegistry::create`
+  as its 0.1.1 function type (`std::unique_ptr<ComponentRegistry> (*)(const Capabilities&)`) no
+  longer compile. Rebuild everything that includes the registry headers.
 - Requires dvv-build 0.5.1.
 
 ### Deprecated (removed in 1.0.0)
@@ -38,8 +44,16 @@ need no parameter schema and no kind.
   `(CreationKey, const ParameterValues&)` constructor, `createComponent`'s values argument and
   `ComponentStatus::schema`. No component declares a parameter, and source parameters travel in
   the request. `ParameterValue`, `ParameterValues`, `Range` and `Colour` stay (module options).
-- `Kind`, `kindName`, `ComponentInfo::kind`, `InterfaceKind`, `HasInterfaceKind` and `list(Kind)`:
-  a component's interface is its category; use `list<I>()`.
+  Replacements:
+  - A component: a constructor that takes only `CreationKey<ComponentRegistry>`, and no
+    `schema()`.
+  - `createComponent`'s values argument: `createComponent<I>(id)` or
+    `createComponent<I>(id, where)`.
+  - `ComponentStatus::schema` and the parameter types: none, since no component has parameters.
+- `Kind`, `kindName`, `ComponentInfo::kind`, `InterfaceKind`, `HasInterfaceKind`, `list(Kind)` and
+  the kind check: a component's interface is its category. Replacements:
+  - `list(Kind::X)`: `list<I>()` for the interface `I`.
+  - `.kind` in a component's `info()` and an `InterfaceKind` specialisation: none, leave them out.
 
 ### Fixed
 - Leak reports name the caller of `ComponentRegistry::create` and `load` as the registry's creation

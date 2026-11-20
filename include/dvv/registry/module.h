@@ -11,6 +11,12 @@
 // a module whose components need its state gives them their own shared_ptr to it (aliasing the
 // handle), so the state ends with its last user.
 //
+// Rules for a module:
+// - load() may run on several threads at once (two threads loading a registry each): it must be
+//   thread-safe. It must not call ComponentRegistry::load().
+// - The handle's deleter runs on the thread that destroys the registry, inside its destructor: it
+//   must not throw and must not call into the registry.
+//
 // ComponentRegistry::modules() and module(id) refer to statuses the registry owns: references,
 // pointers and property() views stay valid as long as the registry lives.
 
@@ -41,8 +47,8 @@ struct ModuleInfo {
 };
 
 // One property a module learned at load, e.g. {"version", "n8.1.3"}. UTF-8 text, except
-// MODULE_DIRECTORY_PROPERTY, which is path text (dvv::pathFromText gives the folder; show it with
-// dvv::pathDisplayText).
+// MODULE_DIRECTORY_PROPERTY, which is path text (dvv::pathFromText of dvv-base 0.5.0 gives the
+// folder; show it with dvv::pathDisplayText).
 struct ModuleProperty {
     std::string key;
     std::string value;
@@ -71,11 +77,15 @@ struct ModuleStatus {
     ModuleInfo info{};
     std::vector<std::string> provides{};  // in info().produces order; added to capabilities()
     std::vector<std::string> withheld{};  // info().produces minus provides, in the same order
-    std::string reason{};                 // empty when nothing is withheld
+    // Empty when load() returned and nothing is withheld; otherwise why. A failed module (its
+    // load() threw, its id is registered more than once, or it provided a capability its info()
+    // does not list) has an "Internal: ..." reason, also when it produces nothing.
+    std::string reason{};
     std::vector<ModuleProperty> properties{};
 
     // True when the module provides at least one capability. A module that produces nothing is
-    // never available; it exists for its properties and its state.
+    // never available; it exists for its properties and its state, and it failed when its reason
+    // is not empty.
     [[nodiscard]] bool available() const noexcept { return !provides.empty(); }
     // The value of the first property with `key`; nullopt when there is none. The view points into
     // this status, so it is valid while the status lives; on a temporary it does not compile.
