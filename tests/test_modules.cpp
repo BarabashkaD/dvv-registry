@@ -19,6 +19,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -210,13 +211,113 @@ struct UndeclaredModule {
     static dvv::ModuleInfo info() noexcept {
         return {.id = "test.mod.undeclared", .name = "Undeclared", .produces = UNDECLARED_PRODUCES};
     }
-    static dvv::ModuleLoad load(const dvv::ParameterValues& /*options*/) {
-        return {.provides = {"test.declared", "test.undeclared"},
-                .facts = {{"directory", "/fake/modules/undeclared"}}};
-    }
+    static dvv::ModuleLoad load(const dvv::ParameterValues& /*options*/);
 };
 
 DVV_REGISTER_MODULE(UndeclaredModule);
+
+// What the module-state tests observe of their modules' handles. The latest load() of each module
+// overwrites its entry.
+struct ModuleStates {
+    std::vector<std::string> released;  // names the order modules' deleters append
+    std::weak_ptr<void> weak;           // test.mod.weak's handle
+    std::shared_ptr<void> sharedCopy;   // test.mod.shared's own copy of its handle
+    std::weak_ptr<void> shared;         // test.mod.shared's handle
+    std::weak_ptr<void> idle;           // test.mod.idle's handle
+    std::weak_ptr<void> undeclared;     // test.mod.undeclared's handle
+};
+
+std::mutex module_states_mutex;
+ModuleStates module_states;
+
+// Runs `use` on the module states while holding their mutex.
+template <class Use>
+decltype(auto) withModuleStates(Use&& use) {
+    const std::lock_guard lock(module_states_mutex);
+    return std::forward<Use>(use)(module_states);
+}
+
+// A handle whose release appends `name` to module_states.released.
+std::shared_ptr<void> ordered(std::string name) {
+    return std::shared_ptr<std::string>(
+        new std::string(std::move(name)), [](const std::string* released) {
+            withModuleStates(
+                [released](ModuleStates& states) { states.released.push_back(*released); });
+            delete released;
+        });
+}
+
+dvv::ModuleLoad UndeclaredModule::load(const dvv::ParameterValues& /*options*/) {
+    auto handle = std::make_shared<int>(0);
+    withModuleStates([&handle](ModuleStates& states) { states.undeclared = handle; });
+    return {.provides = {"test.declared", "test.undeclared"},
+            .facts = {{"directory", "/fake/modules/undeclared"}},
+            .handle = std::move(handle)};
+}
+
+// Produce nothing; their handles log their release.
+struct OrderAModule {
+    static dvv::ModuleInfo info() noexcept { return {.id = "test.mod.order.a", .name = "Order A"}; }
+    static dvv::ModuleLoad load(const dvv::ParameterValues& /*options*/) {
+        return {.handle = ordered("a")};
+    }
+};
+
+DVV_REGISTER_MODULE(OrderAModule);
+
+struct OrderBModule {
+    static dvv::ModuleInfo info() noexcept { return {.id = "test.mod.order.b", .name = "Order B"}; }
+    static dvv::ModuleLoad load(const dvv::ParameterValues& /*options*/) {
+        return {.handle = ordered("b")};
+    }
+};
+
+DVV_REGISTER_MODULE(OrderBModule);
+
+// Keeps only a weak_ptr to its handle.
+struct WeakModule {
+    static dvv::ModuleInfo info() noexcept { return {.id = "test.mod.weak", .name = "Weak"}; }
+    static dvv::ModuleLoad load(const dvv::ParameterValues& /*options*/) {
+        auto handle = std::make_shared<int>(0);
+        withModuleStates([&handle](ModuleStates& states) { states.weak = handle; });
+        return {.handle = std::move(handle)};
+    }
+};
+
+DVV_REGISTER_MODULE(WeakModule);
+
+// Keeps its own shared_ptr copy of its handle, as for components that use its state.
+struct SharedModule {
+    static dvv::ModuleInfo info() noexcept { return {.id = "test.mod.shared", .name = "Shared"}; }
+    static dvv::ModuleLoad load(const dvv::ParameterValues& /*options*/) {
+        auto handle = std::make_shared<int>(0);
+        withModuleStates([&handle](ModuleStates& states) {
+            states.sharedCopy = handle;
+            states.shared = handle;
+        });
+        return {.handle = std::move(handle)};
+    }
+};
+
+DVV_REGISTER_MODULE(SharedModule);
+
+// Produces nothing and provides nothing, yet keeps state.
+struct IdleModule {
+    static dvv::ModuleInfo info() noexcept { return {.id = "test.mod.idle", .name = "Idle"}; }
+    static dvv::ModuleLoad load(const dvv::ParameterValues& /*options*/) {
+        auto handle = std::make_shared<int>(0);
+        withModuleStates([&handle](ModuleStates& states) { states.idle = handle; });
+        return {.handle = std::move(handle)};
+    }
+};
+
+DVV_REGISTER_MODULE(IdleModule);
+
+// Whether the handle `which` selects has been released.
+bool expired(std::weak_ptr<void> ModuleStates::* which) {
+    return withModuleStates(
+        [which](const ModuleStates& states) { return (states.*which).expired(); });
+}
 
 // The interface of the components that need a module's capability.
 class IModuleProbe {
@@ -580,4 +681,108 @@ TEST_CASE("load logs one line per module, with no reason and no fact") {
     CHECK_FALSE(log.holds("stray text"));
     CHECK_FALSE(log.holds("unknown exception"));
     CHECK_FALSE(log.holds("/fake/modules"));  // the directory facts and the exception text
+}
+
+TEST_CASE("module states are released in reverse load order when the registry ends") {
+    withModuleStates([](ModuleStates& states) { states.released.clear(); });
+    auto registry = dvv::ComponentRegistry::load();
+    CHECK(withModuleStates([](const ModuleStates& states) { return states.released.empty(); }));
+    registry.reset();
+    CHECK(withModuleStates([](const ModuleStates& states) { return states.released; }) ==
+          std::vector<std::string>{"b", "a"});
+}
+
+TEST_CASE("the registry drops its own reference to module state") {
+    auto registry = dvv::ComponentRegistry::load();
+    CHECK_FALSE(expired(&ModuleStates::weak));
+    registry.reset();
+    CHECK(expired(&ModuleStates::weak));
+}
+
+TEST_CASE("state a module shares outlives the registry") {
+    auto registry = dvv::ComponentRegistry::load();
+    registry.reset();
+    CHECK_FALSE(expired(&ModuleStates::shared));
+    std::shared_ptr<void> copy;
+    withModuleStates([&copy](ModuleStates& states) { copy = std::move(states.sharedCopy); });
+    copy.reset();
+    CHECK(expired(&ModuleStates::shared));
+}
+
+TEST_CASE("a module that provides nothing keeps its handle until the registry ends") {
+    auto registry = dvv::ComponentRegistry::load();
+    CHECK_FALSE(expired(&ModuleStates::idle));
+    registry.reset();
+    CHECK(expired(&ModuleStates::idle));
+}
+
+TEST_CASE(
+    "a module that provides an undeclared capability keeps its handle until the registry "
+    "ends") {
+    auto registry = dvv::ComponentRegistry::load();
+    CHECK_FALSE(expired(&ModuleStates::undeclared));
+    registry.reset();
+    CHECK(expired(&ModuleStates::undeclared));
+}
+
+TEST_CASE("two registries load their modules independently") {
+    const int loads = counting_loads.load();
+    const int releases = counting_releases.load();
+    auto first = dvv::ComponentRegistry::load();
+    auto second = dvv::ComponentRegistry::load();
+    CHECK(counting_loads.load() == loads + 2);
+    CHECK(counting_releases.load() == releases);
+    first.reset();
+    CHECK(counting_releases.load() == releases + 1);
+    second.reset();
+    CHECK(counting_releases.load() == releases + 2);
+}
+
+TEST_CASE("two threads load at once") {
+    const int loads = counting_loads.load();
+    const int releases = counting_releases.load();
+    std::unique_ptr<dvv::ComponentRegistry> first;
+    std::unique_ptr<dvv::ComponentRegistry> second;
+    std::thread first_thread([&first] { first = dvv::ComponentRegistry::load(); });
+    std::thread second_thread([&second] { second = dvv::ComponentRegistry::load(); });
+    first_thread.join();
+    second_thread.join();
+    CHECK(counting_loads.load() == loads + 2);
+    REQUIRE(first != nullptr);
+    REQUIRE(second != nullptr);
+    CHECK(first->module("test.mod.counting") != nullptr);
+    CHECK(second->module("test.mod.counting") != nullptr);
+    CHECK(counting_releases.load() == releases);
+    first.reset();
+    second.reset();
+    CHECK(counting_releases.load() == releases + 2);
+}
+
+TEST_CASE("modules, capabilities and createComponent from several threads at once") {
+    constexpr int THREADS = 8;
+    constexpr int ROUNDS = 200;
+    const auto registry = dvv::ComponentRegistry::load();
+    const std::size_t module_count = registry->modules().size();
+    const dvv::ModuleStatus* ready = registry->module("test.mod.ready");
+    REQUIRE(ready != nullptr);
+
+    std::atomic<int> unexpected{0};
+    std::vector<std::thread> threads;
+    threads.reserve(THREADS);
+    for (int thread = 0; thread < THREADS; ++thread) {
+        threads.emplace_back([&] {
+            for (int round = 0; round < ROUNDS; ++round) {
+                if (registry->modules().size() != module_count ||
+                    registry->module("test.mod.ready") != ready ||
+                    !registry->capabilities().has("test.ready") ||
+                    !registry->createComponent<IModuleProbe>("test.needs_ready").has_value()) {
+                    unexpected.fetch_add(1);
+                }
+            }
+        });
+    }
+    for (auto& thread : threads) {
+        thread.join();
+    }
+    CHECK(unexpected.load() == 0);
 }

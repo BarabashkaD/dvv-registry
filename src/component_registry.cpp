@@ -93,10 +93,11 @@ ModuleStatus failedStatus(const ModuleInfo& info, std::string reason,
     return status;
 }
 
-// Runs one module's load(). The log lines name the module and capabilities only: the exception
-// text, the reason and the facts may hold a path, so they go only into the status.
+// Runs one module's load() and adds the state it returns to `handles` at once, whatever it
+// provides. The log lines name the module and capabilities only: the exception text, the reason
+// and the facts may hold a path, so they go only into the status.
 ModuleStatus loadModule(ModuleLoad (*load)(const ParameterValues&), const ModuleInfo& info,
-                        const ParameterValues& values) {
+                        const ParameterValues& values, detail::ModuleHandles& handles) {
     ModuleLoad result;
     try {
         result = load(values);
@@ -104,6 +105,7 @@ ModuleStatus loadModule(ModuleLoad (*load)(const ParameterValues&), const Module
         DVV_LOG_ERROR("module '{}' threw from load()", info.id);
         return failedStatus(info, internalReason("load() threw", describeCurrentException()));
     }
+    handles.add(std::move(result.handle));
     const auto undeclared = std::ranges::find_if(result.provides, [&info](const std::string& name) {
         return !std::ranges::contains(info.produces, std::string_view(name));
     });
@@ -199,7 +201,7 @@ std::unique_ptr<ComponentRegistry> ComponentRegistry::load(const ModuleOptions& 
             const auto found = options.modules.find(module.info.id);
             const ParameterValues& values =
                 found != options.modules.end() ? found->second : no_values;
-            status = loadModule(module.node->load_, module.info, values);
+            status = loadModule(module.node->load_, module.info, values, parts.handles);
         }
         logModuleStatus(status);
         parts.modules.push_back(std::move(status));
