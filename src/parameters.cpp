@@ -369,40 +369,40 @@ Result<ParameterValues> ParameterSchema::resolve(const ParameterValues& values) 
     return resolved;
 }
 
-ParameterSchema::Builder& ParameterSchema::Builder::addInt(std::string name, std::string label,
-                                                           IntParameter spec) {
-    parameters_.push_back(Parameter{std::move(name), std::move(label), spec});
-    return *this;
-}
-
-ParameterSchema::Builder& ParameterSchema::Builder::addFloat(std::string name, std::string label,
-                                                             FloatParameter spec) {
-    parameters_.push_back(Parameter{std::move(name), std::move(label), spec});
-    return *this;
-}
-
-ParameterSchema::Builder& ParameterSchema::Builder::addBool(std::string name, std::string label,
-                                                            BoolParameter spec) {
-    parameters_.push_back(Parameter{std::move(name), std::move(label), spec});
-    return *this;
-}
-
-ParameterSchema::Builder& ParameterSchema::Builder::addEnum(std::string name, std::string label,
-                                                            EnumParameter spec) {
+ParameterSchema::Builder& ParameterSchema::Builder::add(std::string name, std::string label,
+                                                        decltype(Parameter::spec) spec) {
     parameters_.push_back(Parameter{std::move(name), std::move(label), std::move(spec)});
     return *this;
 }
 
+ParameterSchema::Builder& ParameterSchema::Builder::addInt(std::string name, std::string label,
+                                                           IntParameter spec) {
+    return add(std::move(name), std::move(label), std::move(spec));
+}
+
+ParameterSchema::Builder& ParameterSchema::Builder::addFloat(std::string name, std::string label,
+                                                             FloatParameter spec) {
+    return add(std::move(name), std::move(label), std::move(spec));
+}
+
+ParameterSchema::Builder& ParameterSchema::Builder::addBool(std::string name, std::string label,
+                                                            BoolParameter spec) {
+    return add(std::move(name), std::move(label), std::move(spec));
+}
+
+ParameterSchema::Builder& ParameterSchema::Builder::addEnum(std::string name, std::string label,
+                                                            EnumParameter spec) {
+    return add(std::move(name), std::move(label), std::move(spec));
+}
+
 ParameterSchema::Builder& ParameterSchema::Builder::addRange(std::string name, std::string label,
                                                              RangeParameter spec) {
-    parameters_.push_back(Parameter{std::move(name), std::move(label), spec});
-    return *this;
+    return add(std::move(name), std::move(label), std::move(spec));
 }
 
 ParameterSchema::Builder& ParameterSchema::Builder::addColour(std::string name, std::string label,
                                                               ColourParameter spec) {
-    parameters_.push_back(Parameter{std::move(name), std::move(label), spec});
-    return *this;
+    return add(std::move(name), std::move(label), std::move(spec));
 }
 
 Result<ParameterSchema> ParameterSchema::Builder::build() const {

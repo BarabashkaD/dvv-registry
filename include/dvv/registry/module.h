@@ -40,7 +40,9 @@ struct ModuleInfo {
     std::span<const std::string_view> produces{};
 };
 
-// One fact a module learned at load, e.g. {"version", "n8.1.3"}. UTF-8 text.
+// One fact a module learned at load, e.g. {"version", "n8.1.3"}. UTF-8 text, except
+// MODULE_DIRECTORY_FACT, which is path text (dvv::pathFromText gives the folder; show it with
+// dvv::pathDisplayText).
 struct ModuleFact {
     std::string key;
     std::string value;

@@ -3,16 +3,17 @@
 // Components and the registry that creates them (spec §9.1, §9.2, §9.4).
 //
 // A component is a final class implementing one interface I (IMetric, ISource, ...), deriving
-// Managed<Self>, with static info(), schema() and probe() and a constructor taking
-// (CreationKey<ComponentRegistry>, const ParameterValues&). One line at namespace scope in its .cpp
-// registers it:
+// Managed<Self>, with static info() and probe() and a constructor taking
+// CreationKey<ComponentRegistry> (schema() and the ParameterValues form are deprecated). One line
+// at namespace scope in its .cpp registers it:
 //
 //     DVV_REGISTER(IMetric, PsnrMetric);
 //
-// The line defines a static descriptor that links itself into a process-wide list during static
-// initialisation (no allocation). ComponentRegistry reads that list; it is the only creator of
-// components. Component libraries are linked with dvv_link_components() (WHOLE_ARCHIVE), so the
-// descriptors survive linking.
+// The line defines a static registration node that links itself into a process-wide list during
+// static initialisation (no allocation). ComponentRegistry reads that list; it is the only creator
+// of components. Component libraries are linked with dvv_link_components() (WHOLE_ARCHIVE), so the
+// registration nodes survive linking. DVV_REGISTER_MODULE (dvv/registry/module.h) registers a
+// module the same way.
 
 #include <concepts>
 #include <expected>
@@ -159,10 +160,12 @@ public:
     // Runs no module: probes with `caps` as given. For tests and hosts that state their
     // capabilities; modules() is empty and capabilities() is `caps`. `where` is the creation site
     // that leak reports show: the caller.
-    // Runs every registered component's schema() and probe(caps) once. A component whose schema()
-    // or probe() throws is unavailable with an "Internal: ..." reason, and so is every component
-    // whose id is registered more than once. A component whose info().kind differs from
-    // InterfaceKind<I> of its interface is unavailable without being probed.
+    //
+    // Runs every registered component's probe(caps) once (and schema(), where a component still has
+    // one). A component whose schema() or probe() throws is unavailable with an "Internal: ..."
+    // reason, and so is every component whose id is registered more than once. A component whose
+    // info().kind differs from InterfaceKind<I> of its interface is unavailable without being
+    // probed.
     [[nodiscard]] static std::unique_ptr<ComponentRegistry> create(
         const Capabilities& caps, std::source_location where = std::source_location::current());
 

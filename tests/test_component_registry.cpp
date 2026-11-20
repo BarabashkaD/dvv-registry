@@ -259,10 +259,29 @@ public:
 };
 DVV_REGISTER(IGreeter, Plain);
 
+// Both constructors: the registry uses the values form (spec §4.4).
+class BothForms final : public IGreeter, public dvv::Managed<BothForms> {
+public:
+    explicit BothForms(Key key) noexcept : Managed(std::move(key)), form_("key") {}
+    BothForms(Key key, const dvv::ParameterValues& /*values*/) noexcept
+        : Managed(std::move(key)), form_("values") {}
+
+    static dvv::ComponentInfo info() noexcept {
+        return {.id = "test.plain_both", .name = "Both forms"};
+    }
+    static Probed probe(const dvv::Capabilities& /*caps*/) { return {}; }
+
+    [[nodiscard]] std::string greet() const override { return form_; }
+
+private:
+    std::string form_;
+};
+DVV_REGISTER(IGreeter, BothForms);
+
 // The sorted ids of the test components without .kind, which report Kind::Source.
-constexpr auto SOURCE_IDS =
-    std::to_array<std::string_view>({"test.needs_ready", "test.needs_shared_cap",
-                                     "test.needs_thrown", "test.plain", "test.source_widget"});
+constexpr auto SOURCE_IDS = std::to_array<std::string_view>(
+    {"test.needs_ready", "test.needs_shared_cap", "test.needs_thrown", "test.plain",
+     "test.plain_both", "test.source_widget"});
 
 const dvv::ComponentStatus* findStatus(const std::vector<dvv::ComponentStatus>& statuses,
                                        std::string_view id) {
@@ -321,7 +340,8 @@ TEST_CASE("list<I>() returns the components registered for I, sorted by id, avai
     }
     CHECK(ids == std::vector<std::string_view>{"test.bad_alloc", "test.broken_schema",
                                                "test.gpu_greeter", "test.greeter", "test.plain",
-                                               "test.throwing_constructor", "test.throwing_probe"});
+                                               "test.plain_both", "test.throwing_constructor",
+                                               "test.throwing_probe"});
     CHECK(registry->list<ICounter>().size() == 3);  // no greeter among them
     CHECK(registry->list<IUnregistered>().empty());
 }
@@ -464,6 +484,13 @@ TEST_CASE("a schema-less component's status has an empty schema") {
     CHECK(plain->available());
     REQUIRE(plain->schema != nullptr);
     CHECK(plain->schema->parameters().empty());
+}
+
+TEST_CASE("a component with both constructors is built with the values form") {
+    const auto registry = dvv::ComponentRegistry::create(dvv::Capabilities{});
+    const auto created = registry->createComponent<IGreeter>("test.plain_both");
+    REQUIRE(created.has_value());
+    CHECK((*created)->greet() == "values");
 }
 
 TEST_CASE("a schema-less component rejects parameter values") {

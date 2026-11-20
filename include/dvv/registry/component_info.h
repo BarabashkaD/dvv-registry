@@ -1,6 +1,6 @@
 #pragma once
 
-// Component descriptors (spec §9.2, §9.3).
+// Component info (spec §9.2, §9.3).
 
 #include <concepts>
 #include <cstdint>
@@ -34,12 +34,12 @@ struct ComponentInfo {
     friend constexpr bool operator==(const ComponentInfo&, const ComponentInfo&) = default;
 };
 
+// Deprecated (0.2.0): a component's interface is its category; use list<I>(). Removed in 1.0.0.
 // The component kind every implementation of interface I must report (spec §9.3). Specialise it
 // in the interface's header:
 //     template <> struct dvv::InterfaceKind<dvv::media::ISourceProvider>
 //         : std::integral_constant<dvv::Kind, dvv::Kind::Source> {};
 // Without a specialisation the registry does not check the kind.
-// Deprecated (0.2.0): a component's interface is its category; use list<I>(). Removed in 1.0.0.
 template <class I>
 struct InterfaceKind {};
 

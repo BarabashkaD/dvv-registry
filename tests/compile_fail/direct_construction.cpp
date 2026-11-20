@@ -118,7 +118,8 @@ DVV_REGISTER(IWidget, SchemaOneArg);
 class IntOnly final : public IWidget, public dvv::Managed<IntOnly> {
 public:
     // No body: Managed<IntOnly> can only be built from the registry's key, so a defined (int)
-    // constructor would add a second, unrelated error. The file fails to compile before it is used.
+    // constructor would add an unrelated error. The expected diagnostic is the static_assert; the
+    // second error, "no matching constructor" in ComponentRegistry::construct(), follows from it.
     explicit IntOnly(int);
 
     static dvv::ComponentInfo info() noexcept {

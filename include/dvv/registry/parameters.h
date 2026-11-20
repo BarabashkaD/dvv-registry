@@ -203,6 +203,8 @@ public:
     [[nodiscard]] Result<ParameterSchema> build() const;
 
 private:
+    Builder& add(std::string name, std::string label, decltype(Parameter::spec) spec);
+
     std::vector<Parameter> parameters_;
 };
 
