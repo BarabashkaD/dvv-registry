@@ -20,5 +20,6 @@ int main() {
             return !status.available() && missing == "consumer.ready" ? 0 : 1;
         }
     }
+    std::puts("consumer.greeting is not registered");
     return 1;
 }

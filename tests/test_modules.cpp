@@ -1,5 +1,5 @@
 // Every load() in this binary runs every module below, also from several threads at once, so each
-// test reads only its own module ids, and module state is a std::atomic or guarded by one
+// test reads only its own module ids, and module state is a std::atomic or guarded by a
 // std::mutex.
 
 #include "test_modules.h"
@@ -237,12 +237,20 @@ decltype(auto) withModuleStates(Use&& use) {
     return std::forward<Use>(use)(module_states);
 }
 
-// A handle whose release appends `name` to module_states.released.
+// Set when an ordered handle's release could not be appended to module_states.released.
+std::atomic<bool> release_unrecorded{false};
+
+// A handle whose release appends `name` to module_states.released. A deleter must not throw, so a
+// release it cannot append sets release_unrecorded instead.
 std::shared_ptr<void> ordered(std::string name) {
     return std::shared_ptr<std::string>(
-        new std::string(std::move(name)), [](const std::string* released) {
-            withModuleStates(
-                [released](ModuleStates& states) { states.released.push_back(*released); });
+        new std::string(std::move(name)), [](const std::string* released) noexcept {
+            try {
+                withModuleStates(
+                    [released](ModuleStates& states) { states.released.push_back(*released); });
+            } catch (...) {
+                release_unrecorded = true;
+            }
             delete released;
         });
 }
@@ -496,6 +504,7 @@ TEST_CASE("create runs no module") {
     CHECK_FALSE(registry->createComponent<IModuleProbe>("test.needs_ready").has_value());
 }
 
+// last() holds this test's load() only because doctest runs the test cases one after another.
 TEST_CASE("module options reach their module and only it") {
     const auto registry = dvv::ComponentRegistry::load(
         {.modules = {{"test.mod.options", {{"k", std::string("v")}}}}});
@@ -690,6 +699,7 @@ TEST_CASE("module states are released in reverse load order when the registry en
     registry.reset();
     CHECK(withModuleStates([](const ModuleStates& states) { return states.released; }) ==
           std::vector<std::string>{"b", "a"});
+    CHECK_FALSE(release_unrecorded);
 }
 
 TEST_CASE("the registry drops its own reference to module state") {
