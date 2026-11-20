@@ -135,7 +135,9 @@ public:
     // or probe() throws is unavailable with an "Internal: ..." reason, and so is every component
     // whose id is registered more than once. A component whose info().kind differs from
     // InterfaceKind<I> of its interface is unavailable without being probed.
-    [[nodiscard]] static std::unique_ptr<ComponentRegistry> create(const Capabilities& caps);
+    // `where` is the creation site that leak reports show: the caller.
+    [[nodiscard]] static std::unique_ptr<ComponentRegistry> create(
+        const Capabilities& caps, std::source_location where = std::source_location::current());
 
     // For create(caps) only (Entry is private).
     ComponentRegistry(CreationKey<ComponentRegistry> key, std::vector<Entry> entries) noexcept;

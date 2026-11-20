@@ -428,6 +428,23 @@ TEST_CASE("createComponent records its caller as the creation site") {
     CHECK(where.line() == line);
 }
 
+TEST_CASE("create records its caller as the creation site") {
+    auto& lifetimes = dvv::LifetimeRegistry::instance();
+    const bool previous = lifetimes.detailed();
+    lifetimes.setDetailed(true);
+    const auto line = std::source_location::current().line() + 1;
+    const auto registry = dvv::ComponentRegistry::create(dvv::Capabilities{});
+    const auto objects = lifetimes.liveObjects();
+    lifetimes.setDetailed(previous);
+
+    const auto found = std::ranges::find(objects, registry->objectId(), &dvv::LiveObjectInfo::id);
+    REQUIRE(found != objects.end());
+    CHECK(found->createdAt.has_value());
+    const std::source_location where = found->createdAt.value_or(std::source_location());
+    CHECK(std::string_view(where.file_name()).ends_with("test_component_registry.cpp"));
+    CHECK(where.line() == line);
+}
+
 TEST_CASE(
     "a schema-less component with a one-argument constructor registers, lists and is created") {
     const auto registry = dvv::ComponentRegistry::create(dvv::Capabilities{});

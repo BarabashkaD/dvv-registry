@@ -50,7 +50,8 @@ std::string internalReason(std::string_view what, std::string_view detail) {
 
 }  // namespace
 
-std::unique_ptr<ComponentRegistry> ComponentRegistry::create(const Capabilities& caps) {
+std::unique_ptr<ComponentRegistry> ComponentRegistry::create(const Capabilities& caps,
+                                                             std::source_location where) {
     std::vector<Entry> entries;
     for (const detail::RegistrationNode* node = detail::RegistrationNode::list_head;
          node != nullptr; node = node->next_) {
@@ -102,7 +103,8 @@ std::unique_ptr<ComponentRegistry> ComponentRegistry::create(const Capabilities&
     }
 
     return std::make_unique<ComponentRegistry>(
-        CreationKey<ComponentRegistry>(LifetimeRegistry::instance().issue<ComponentRegistry>()),
+        CreationKey<ComponentRegistry>(
+            LifetimeRegistry::instance().issue<ComponentRegistry>(NO_OWNER, where)),
         std::move(entries));
 }
 
