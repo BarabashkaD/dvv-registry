@@ -331,10 +331,10 @@ TEST_CASE("probes decide availability and run once per registry") {
     const auto without = dvv::ComponentRegistry::create(dvv::Capabilities{});
     CHECK(GpuGreeter::probe_calls.load() == before + 1);
     CHECK(reasonOf(*without, "test.gpu_greeter") == "missing capability 'gpu.compute'");
-    const auto withoutStatuses = without->list();
-    const dvv::ComponentStatus* withoutGreeter = findStatus(withoutStatuses, "test.gpu_greeter");
-    REQUIRE(withoutGreeter != nullptr);
-    CHECK(withoutGreeter->unavailable.value_or(dvv::Unavailable{}).capability == "gpu.compute");
+    const auto without_statuses = without->list();
+    const dvv::ComponentStatus* without_greeter = findStatus(without_statuses, "test.gpu_greeter");
+    REQUIRE(without_greeter != nullptr);
+    CHECK(without_greeter->unavailable.value_or(dvv::Unavailable{}).capability == "gpu.compute");
 
     const auto with = dvv::ComponentRegistry::create(dvv::Capabilities{"gpu.compute"});
     CHECK(GpuGreeter::probe_calls.load() == before + 2);
