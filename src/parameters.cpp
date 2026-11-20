@@ -377,17 +377,17 @@ ParameterSchema::Builder& ParameterSchema::Builder::add(std::string name, std::s
 
 ParameterSchema::Builder& ParameterSchema::Builder::addInt(std::string name, std::string label,
                                                            IntParameter spec) {
-    return add(std::move(name), std::move(label), std::move(spec));
+    return add(std::move(name), std::move(label), spec);
 }
 
 ParameterSchema::Builder& ParameterSchema::Builder::addFloat(std::string name, std::string label,
                                                              FloatParameter spec) {
-    return add(std::move(name), std::move(label), std::move(spec));
+    return add(std::move(name), std::move(label), spec);
 }
 
 ParameterSchema::Builder& ParameterSchema::Builder::addBool(std::string name, std::string label,
                                                             BoolParameter spec) {
-    return add(std::move(name), std::move(label), std::move(spec));
+    return add(std::move(name), std::move(label), spec);
 }
 
 ParameterSchema::Builder& ParameterSchema::Builder::addEnum(std::string name, std::string label,
@@ -397,12 +397,12 @@ ParameterSchema::Builder& ParameterSchema::Builder::addEnum(std::string name, st
 
 ParameterSchema::Builder& ParameterSchema::Builder::addRange(std::string name, std::string label,
                                                              RangeParameter spec) {
-    return add(std::move(name), std::move(label), std::move(spec));
+    return add(std::move(name), std::move(label), spec);
 }
 
 ParameterSchema::Builder& ParameterSchema::Builder::addColour(std::string name, std::string label,
                                                               ColourParameter spec) {
-    return add(std::move(name), std::move(label), std::move(spec));
+    return add(std::move(name), std::move(label), spec);
 }
 
 Result<ParameterSchema> ParameterSchema::Builder::build() const {
