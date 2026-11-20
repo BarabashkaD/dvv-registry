@@ -14,9 +14,9 @@ need no parameter schema and no kind.
 ### Added
 - `dvv/registry/module.h`: loadable modules. `DVV_REGISTER_MODULE(Type)` registers a type with
   static `info() noexcept -> ModuleInfo` and `load(const ParameterValues&) -> ModuleLoad`; with
-  `ModuleStatus`, `ModuleFact`, `ModuleOptions`, the `Module` concept and the fact keys
-  `MODULE_VERSION_FACT`, `MODULE_LICENCE_FACT`, `MODULE_DIRECTORY_FACT` and
-  `MODULE_VARIABLE_FACT`.
+  `ModuleStatus`, `ModuleProperty`, `ModuleOptions`, the `Module` concept and the property keys
+  `MODULE_VERSION_PROPERTY`, `MODULE_LICENCE_PROPERTY`, `MODULE_DIRECTORY_PROPERTY` and
+  `MODULE_VARIABLE_PROPERTY`.
 - `ComponentRegistry::load(options)`: runs every module's `load()`, probes the components with the
   capabilities the modules provide, and keeps each module's status and state. The state is
   released in reverse load order when the registry is destroyed. `create(caps)` runs no module.

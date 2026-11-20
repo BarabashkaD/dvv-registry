@@ -58,9 +58,10 @@ struct ReadyModule {
     }
     static dvv::ModuleLoad load(const dvv::ParameterValues& options) {
         ready_values.record(options);
-        return {.provides = {"test.ready"},
-                .reason = "test.extra is switched off",
-                .facts = {{"version", "1.2"}, {"licence", "MIT"}, {"directory", "/fake/modules"}}};
+        return {
+            .provides = {"test.ready"},
+            .reason = "test.extra is switched off",
+            .properties = {{"version", "1.2"}, {"licence", "MIT"}, {"directory", "/fake/modules"}}};
     }
 };
 
@@ -259,7 +260,7 @@ dvv::ModuleLoad UndeclaredModule::load(const dvv::ParameterValues& /*options*/) 
     auto handle = std::make_shared<int>(0);
     withModuleStates([&handle](ModuleStates& states) { states.undeclared = handle; });
     return {.provides = {"test.declared", "test.undeclared"},
-            .facts = {{"directory", "/fake/modules/undeclared"}},
+            .properties = {{"directory", "/fake/modules/undeclared"}},
             .handle = std::move(handle)};
 }
 
@@ -442,7 +443,7 @@ std::shared_ptr<void> tracked(std::string name, std::vector<std::string>& log, b
 }
 
 template <class S>
-concept FactOnRvalue = requires(S&& s) { std::move(s).fact("version"); };
+concept PropertyOnRvalue = requires(S&& s) { std::move(s).property("version"); };
 
 }  // namespace
 
@@ -451,11 +452,11 @@ TEST_CASE("a module registered with DVV_REGISTER_MODULE satisfies Module") {
     static_assert(!dvv::Module<NoLoad>);
 }
 
-TEST_CASE("a module status finds the first fact with a key") {
-    const dvv::ModuleStatus status{.facts = {{"version", "1.2"}, {"version", "2"}}};
-    CHECK(status.fact("version") == std::optional<std::string_view>{"1.2"});
-    CHECK(status.fact("absent") == std::nullopt);
-    static_assert(!FactOnRvalue<dvv::ModuleStatus>);
+TEST_CASE("a module status finds the first property with a key") {
+    const dvv::ModuleStatus status{.properties = {{"version", "1.2"}, {"version", "2"}}};
+    CHECK(status.property("version") == std::optional<std::string_view>{"1.2"});
+    CHECK(status.property("absent") == std::nullopt);
+    static_assert(!PropertyOnRvalue<dvv::ModuleStatus>);
 }
 
 TEST_CASE("a module status is available when it provides a capability") {
@@ -571,15 +572,15 @@ TEST_CASE("modules are listed and found by id") {
     CHECK(registry->module("test.none") == nullptr);
 }
 
-TEST_CASE("module facts keep their order and are found by key") {
+TEST_CASE("module properties keep their order and are found by key") {
     const auto registry = dvv::ComponentRegistry::load();
     const dvv::ModuleStatus* ready = registry->module("test.mod.ready");
     REQUIRE(ready != nullptr);
-    CHECK(ready->facts == std::vector<dvv::ModuleFact>{{"version", "1.2"},
-                                                       {"licence", "MIT"},
-                                                       {"directory", "/fake/modules"}});
-    CHECK(ready->fact("version") == std::optional<std::string_view>{"1.2"});
-    CHECK(ready->fact("absent") == std::nullopt);
+    CHECK(ready->properties == std::vector<dvv::ModuleProperty>{{"version", "1.2"},
+                                                                {"licence", "MIT"},
+                                                                {"directory", "/fake/modules"}});
+    CHECK(ready->property("version") == std::optional<std::string_view>{"1.2"});
+    CHECK(ready->property("absent") == std::nullopt);
 }
 
 TEST_CASE("load records its caller as the creation site") {
@@ -672,11 +673,11 @@ TEST_CASE("a module that provides an undeclared capability provides nothing") {
     CHECK(undeclared->withheld == std::vector<std::string>{"test.declared"});
     CHECK_FALSE(registry->capabilities().has("test.declared"));
     CHECK_FALSE(registry->capabilities().has("test.undeclared"));
-    CHECK(undeclared->facts ==
-          std::vector<dvv::ModuleFact>{{"directory", "/fake/modules/undeclared"}});
+    CHECK(undeclared->properties ==
+          std::vector<dvv::ModuleProperty>{{"directory", "/fake/modules/undeclared"}});
 }
 
-TEST_CASE("load logs one line per module, with no reason and no fact") {
+TEST_CASE("load logs one line per module, with no reason and no property") {
     const CapturedLog log;
     const auto registry = dvv::ComponentRegistry::load();
     CHECK(log.holds("module 'test.mod.ready': provides test.ready; withholds test.extra"));
@@ -692,11 +693,11 @@ TEST_CASE("load logs one line per module, with no reason and no fact") {
     CHECK(log.holds(
         "module 'test.mod.undeclared' provided 'test.undeclared', which its info() does not list"));
     CHECK(log.holds("module 'test.mod.undeclared': provides nothing; withholds test.declared"));
-    // No reason, no fact and no exception text.
+    // No reason, no property and no exception text.
     CHECK_FALSE(log.holds("test.extra is switched off"));
     CHECK_FALSE(log.holds("stray text"));
     CHECK_FALSE(log.holds("unknown exception"));
-    CHECK_FALSE(log.holds("/fake/modules"));  // the directory facts and the exception text
+    CHECK_FALSE(log.holds("/fake/modules"));  // the directory properties and the exception text
 }
 
 TEST_CASE("module states are released in reverse load order when the registry ends") {

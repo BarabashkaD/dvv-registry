@@ -80,22 +80,22 @@ ModuleStatus moduleStatus(const ModuleInfo& info, ModuleLoad result) {
     if (!status.withheld.empty()) {
         status.reason = std::move(result.reason);
     }
-    status.facts = std::move(result.facts);
+    status.properties = std::move(result.properties);
     return status;
 }
 
 // The status of a module that provides nothing because of `reason`; never empty, also when the
 // module produces nothing.
 ModuleStatus failedStatus(const ModuleInfo& info, std::string reason,
-                          std::vector<ModuleFact> facts = {}) {
-    ModuleStatus status = moduleStatus(info, ModuleLoad{.facts = std::move(facts)});
+                          std::vector<ModuleProperty> properties = {}) {
+    ModuleStatus status = moduleStatus(info, ModuleLoad{.properties = std::move(properties)});
     status.reason = std::move(reason);
     return status;
 }
 
 // Runs one module's load() and adds the state it returns to `handles` at once, whatever it
 // provides. The log lines name the module and capabilities only: the exception text, the reason
-// and the facts may hold a path, so they go only into the status.
+// and the properties may hold a path, so they go only into the status.
 ModuleStatus loadModule(ModuleLoad (*load)(const ParameterValues&), const ModuleInfo& info,
                         const ParameterValues& values, detail::ModuleHandles& handles) {
     ModuleLoad result;
@@ -115,7 +115,7 @@ ModuleStatus loadModule(ModuleLoad (*load)(const ParameterValues&), const Module
         return failedStatus(info,
                             std::format("{}: load() provided undeclared capability '{}'",
                                         errcName(Errc::Internal), *undeclared),
-                            std::move(result.facts));
+                            std::move(result.properties));
     }
     return moduleStatus(info, std::move(result));
 }

@@ -87,7 +87,7 @@ struct ExampleModule {
     // Open what the module needs; options are this module's entry of ModuleOptions.
     static dvv::ModuleLoad load(const dvv::ParameterValues& /*options*/) {
         return {.provides = {std::string(EXAMPLE_CAPABILITY)},
-                .facts = {{std::string(dvv::MODULE_VERSION_FACT), "1.0"}}};
+                .properties = {{std::string(dvv::MODULE_VERSION_PROPERTY), "1.0"}}};
     }
 };
 }  // namespace
@@ -124,8 +124,8 @@ use it in tests and in hosts that state their capabilities themselves.
 - `load()` runs every module in id order. A module whose `load()` throws, whose id is registered
   twice, or that provides a capability `produces` does not list, provides nothing; the registry
   still starts. Each module's status (`modules()`, `module(id)`) holds what it provides and
-  withholds, why, and its facts. The registry logs one line per module with its id and capability
-  names, never the reason or a fact: those can hold paths.
+  withholds, why, and its properties. The registry logs one line per module with its id and
+  capability names, never the reason or a property: those can hold paths.
 - The registry keeps each module's state (`ModuleLoad::handle`) and releases it in reverse load
   order when the registry is destroyed. Components can outlive the registry, so a module whose
   components need its state gives them their own `shared_ptr` to it. The registry stops no running

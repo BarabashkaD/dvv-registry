@@ -12,7 +12,7 @@
 // handle), so the state ends with its last user.
 //
 // ComponentRegistry::modules() and module(id) refer to statuses the registry owns: references,
-// pointers and fact() views stay valid as long as the registry lives.
+// pointers and property() views stay valid as long as the registry lives.
 
 #include <concepts>
 #include <functional>
@@ -40,30 +40,30 @@ struct ModuleInfo {
     std::span<const std::string_view> produces{};
 };
 
-// One fact a module learned at load, e.g. {"version", "n8.1.3"}. UTF-8 text, except
-// MODULE_DIRECTORY_FACT, which is path text (dvv::pathFromText gives the folder; show it with
+// One property a module learned at load, e.g. {"version", "n8.1.3"}. UTF-8 text, except
+// MODULE_DIRECTORY_PROPERTY, which is path text (dvv::pathFromText gives the folder; show it with
 // dvv::pathDisplayText).
-struct ModuleFact {
+struct ModuleProperty {
     std::string key;
     std::string value;
 
-    friend bool operator==(const ModuleFact&, const ModuleFact&) = default;
+    friend bool operator==(const ModuleProperty&, const ModuleProperty&) = default;
 };
 
-// Fact keys with one meaning for every module; a module may add keys of its own.
-inline constexpr std::string_view MODULE_VERSION_FACT = "version";
-inline constexpr std::string_view MODULE_LICENCE_FACT = "licence";
+// Property keys with one meaning for every module; a module may add keys of its own.
+inline constexpr std::string_view MODULE_VERSION_PROPERTY = "version";
+inline constexpr std::string_view MODULE_LICENCE_PROPERTY = "licence";
 // Path text of the folder the module loaded from. It may name the user's machine: mask it.
-inline constexpr std::string_view MODULE_DIRECTORY_FACT = "directory";
+inline constexpr std::string_view MODULE_DIRECTORY_PROPERTY = "directory";
 // The environment variable that chose that folder, when one did, e.g. "DVV_FFMPEG_DIR".
-inline constexpr std::string_view MODULE_VARIABLE_FACT = "variable";
+inline constexpr std::string_view MODULE_VARIABLE_PROPERTY = "variable";
 
 // What a module's load() returns.
 struct ModuleLoad {
     std::vector<std::string> provides{};  // each one of info().produces
-    std::string reason{};             // why a produced capability is not provided; may hold a path
-    std::vector<ModuleFact> facts{};  // in the order the module wants them shown
-    std::shared_ptr<void> handle{};   // the module's state; null when it keeps none
+    std::string reason{};  // why a produced capability is not provided; may hold a path
+    std::vector<ModuleProperty> properties{};  // in the order the module wants them shown
+    std::shared_ptr<void> handle{};            // the module's state; null when it keeps none
 };
 
 // What the registry knows about one module.
@@ -72,15 +72,15 @@ struct ModuleStatus {
     std::vector<std::string> provides{};  // in info().produces order; added to capabilities()
     std::vector<std::string> withheld{};  // info().produces minus provides, in the same order
     std::string reason{};                 // empty when nothing is withheld
-    std::vector<ModuleFact> facts{};
+    std::vector<ModuleProperty> properties{};
 
     // True when the module provides at least one capability. A module that produces nothing is
-    // never available; it exists for its facts and its state.
+    // never available; it exists for its properties and its state.
     [[nodiscard]] bool available() const noexcept { return !provides.empty(); }
-    // The value of the first fact with `key`; nullopt when there is none. The view points into
+    // The value of the first property with `key`; nullopt when there is none. The view points into
     // this status, so it is valid while the status lives; on a temporary it does not compile.
-    [[nodiscard]] std::optional<std::string_view> fact(std::string_view key) const& noexcept;
-    std::optional<std::string_view> fact(std::string_view key) const&& = delete;
+    [[nodiscard]] std::optional<std::string_view> property(std::string_view key) const& noexcept;
+    std::optional<std::string_view> property(std::string_view key) const&& = delete;
 };
 
 // Options for ComponentRegistry::load(): each module's values, by module id. A module checks its

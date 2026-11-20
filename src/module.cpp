@@ -4,10 +4,10 @@
 
 namespace dvv {
 
-std::optional<std::string_view> ModuleStatus::fact(std::string_view key) const& noexcept {
-    const auto found =
-        std::ranges::find_if(facts, [key](const ModuleFact& entry) { return entry.key == key; });
-    if (found == facts.end()) {
+std::optional<std::string_view> ModuleStatus::property(std::string_view key) const& noexcept {
+    const auto found = std::ranges::find_if(
+        properties, [key](const ModuleProperty& entry) { return entry.key == key; });
+    if (found == properties.end()) {
         return std::nullopt;
     }
     return std::string_view{found->value};
