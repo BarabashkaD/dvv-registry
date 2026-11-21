@@ -4,8 +4,9 @@ include_guard(GLOBAL)
 
 # dvv_link_components(<target> [<component library>...])
 # Links each component library into <target> as a whole archive ($<LINK_LIBRARY:WHOLE_ARCHIVE,...>:
-# MSVC /WHOLEARCHIVE, GNU --whole-archive, Apple -force_load), so the DVV_REGISTER descriptors in it
-# survive linking although nothing references them. Use it for executables and shared libraries.
+# MSVC /WHOLEARCHIVE, GNU --whole-archive, Apple -force_load), so the DVV_REGISTER and
+# DVV_REGISTER_MODULE registration nodes in it survive linking although nothing references them.
+# Use it for executables and shared libraries.
 # Each library must be a static library target that is linked into <target> only this way (CMake
 # rejects a library linked both with and without WHOLE_ARCHIVE). An empty list is allowed (every
 # component switched off). With MSVC and at least one library, <target> also gets /INCREMENTAL:NO:

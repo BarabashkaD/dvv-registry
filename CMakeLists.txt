@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 4.2)
-project(dvv_registry VERSION 0.1.1 DESCRIPTION "dvv component registry" LANGUAGES CXX)
+project(dvv_registry VERSION 0.2.0 DESCRIPTION "dvv component registry" LANGUAGES CXX)
 # Version string; a pre-release build adds its release-stage label (user decision U-M4ORDER).
 set(dvv_registry_VERSION_STRING "${PROJECT_VERSION}")
 
@@ -32,6 +32,7 @@ add_library(dvv_registry STATIC
     src/capabilities.cpp
     src/component_info.cpp
     src/component_registry.cpp
+    src/module.cpp
     src/parameters.cpp)
 add_library(dvv::registry ALIAS dvv_registry)
 set_target_properties(dvv_registry PROPERTIES EXPORT_NAME registry)

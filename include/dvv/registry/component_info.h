@@ -1,6 +1,6 @@
 #pragma once
 
-// Component descriptors (spec §9.2, §9.3).
+// Component info (spec §9.2, §9.3).
 
 #include <concepts>
 #include <cstdint>
@@ -8,6 +8,7 @@
 
 namespace dvv {
 
+// Deprecated (0.2.0): a component's interface is its category; use list<I>(). Removed in 1.0.0.
 enum class Kind : std::uint8_t {
     Source,
     FormatDetector,
@@ -18,6 +19,7 @@ enum class Kind : std::uint8_t {
     Processor
 };
 
+// Deprecated (0.2.0): a component's interface is its category; use list<I>(). Removed in 1.0.0.
 [[nodiscard]] std::string_view kindName(Kind kind) noexcept;
 
 // What a component reports about itself. id and name refer to static storage (string literals).
@@ -25,12 +27,14 @@ enum class Kind : std::uint8_t {
 struct ComponentInfo {
     std::string_view id;
     std::string_view name;
+    // Deprecated (0.2.0): a component's interface is its category; use list<I>(). Removed in 1.0.0.
     Kind kind = Kind::Source;
     int version = 1;
 
     friend constexpr bool operator==(const ComponentInfo&, const ComponentInfo&) = default;
 };
 
+// Deprecated (0.2.0): a component's interface is its category; use list<I>(). Removed in 1.0.0.
 // The component kind every implementation of interface I must report (spec §9.3). Specialise it
 // in the interface's header:
 //     template <> struct dvv::InterfaceKind<dvv::media::ISourceProvider>
@@ -39,6 +43,7 @@ struct ComponentInfo {
 template <class I>
 struct InterfaceKind {};
 
+// Deprecated (0.2.0): a component's interface is its category; use list<I>(). Removed in 1.0.0.
 template <class I>
 concept HasInterfaceKind = requires {
     { InterfaceKind<I>::value } -> std::convertible_to<Kind>;

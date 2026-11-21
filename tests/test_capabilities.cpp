@@ -54,3 +54,16 @@ TEST_CASE("component info is a comparable value") {
     copy.version = 2;
     CHECK(copy != PSNR);
 }
+
+TEST_CASE("require names the missing capability") {
+    const dvv::Capabilities caps{"a"};
+    const auto result = dvv::require(caps, {"a", "b"});
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error().capability == "b");
+    CHECK(result.error().reason == "missing capability 'b'");
+}
+
+TEST_CASE("an Unavailable from a reason alone has no capability") {
+    const dvv::Unavailable unavailable{"text"};
+    CHECK(unavailable.capability.empty());
+}
