@@ -6,7 +6,7 @@ the dvv rules: compatible = the same major and at least the minimum version, als
 changes only in a new major, after a deprecation. This file is the release notes (there are no
 GitHub Releases).
 
-## [0.2.0] - <date>
+## [0.2.0] - 2026-11-21
 
 Loadable modules: the registry loads them, keeps their state and reports their status. Components
 need no parameter schema and no kind.
