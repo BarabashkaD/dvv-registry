@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <atomic>
-#include <cstdint>
 #include <expected>
 #include <memory>
 #include <new>
@@ -55,58 +54,33 @@ public:
     virtual ~IUnregistered() = default;
 };
 
+template <class T>
+concept HasSchemaField = requires(T status) { status.schema; };
+
 using Key = dvv::CreationKey<dvv::ComponentRegistry>;
 using Probed = std::expected<void, dvv::Unavailable>;
 
-// A greeter with parameters; always available.
+// A greeter; always available.
 class Greeter final : public IGreeter, public dvv::Managed<Greeter> {
 public:
-    Greeter(Key key, const dvv::ParameterValues& values)
-        : Managed(std::move(key)),
-          greeting_(std::get<std::string>(values.at("greeting"))),
-          repeat_(std::get<std::int64_t>(values.at("repeat"))) {}
+    explicit Greeter(Key key) noexcept : Managed(std::move(key)) {}
 
     static dvv::ComponentInfo info() noexcept {
-        return {.id = "test.greeter", .name = "Greeter", .kind = dvv::Kind::Tool, .version = 2};
-    }
-    static const dvv::ParameterSchema& schema() {
-        static const dvv::ParameterSchema SCHEMA =
-            dvv::ParameterSchema::Builder()
-                .addEnum("greeting", "Greeting",
-                         {.options = {"hello", "hi"}, .defaultValue = "hello"})
-                .addInt("repeat", "Repeat", {.min = 1, .max = 3, .defaultValue = 1})
-                .build()
-                .value();
-        return SCHEMA;
+        return {.id = "test.greeter", .name = "Greeter", .version = 2};
     }
     static Probed probe(const dvv::Capabilities& /*caps*/) { return {}; }
 
-    [[nodiscard]] std::string greet() const override {
-        std::string text;
-        for (std::int64_t i = 0; i < repeat_; ++i) {
-            text += text.empty() ? greeting_ : " " + greeting_;
-        }
-        return text;
-    }
-
-private:
-    std::string greeting_;
-    std::int64_t repeat_;
+    [[nodiscard]] std::string greet() const override { return "hello"; }
 };
 DVV_REGISTER(IGreeter, Greeter);
 
 // Needs a capability; counts its probe calls.
 class GpuGreeter final : public IGreeter, public dvv::Managed<GpuGreeter> {
 public:
-    GpuGreeter(Key key, const dvv::ParameterValues& /*values*/) noexcept
-        : Managed(std::move(key)) {}
+    explicit GpuGreeter(Key key) noexcept : Managed(std::move(key)) {}
 
     static dvv::ComponentInfo info() noexcept {
-        return {.id = "test.gpu_greeter", .name = "GPU greeter", .kind = dvv::Kind::Tool};
-    }
-    static const dvv::ParameterSchema& schema() {
-        static const dvv::ParameterSchema SCHEMA;
-        return SCHEMA;
+        return {.id = "test.gpu_greeter", .name = "GPU greeter"};
     }
     static Probed probe(const dvv::Capabilities& caps) {
         probe_calls.fetch_add(1);
@@ -121,15 +95,10 @@ DVV_REGISTER(IGreeter, GpuGreeter);
 
 class ThrowingProbe final : public IGreeter, public dvv::Managed<ThrowingProbe> {
 public:
-    ThrowingProbe(Key key, const dvv::ParameterValues& /*values*/) noexcept
-        : Managed(std::move(key)) {}
+    explicit ThrowingProbe(Key key) noexcept : Managed(std::move(key)) {}
 
     static dvv::ComponentInfo info() noexcept {
-        return {.id = "test.throwing_probe", .name = "Throwing probe", .kind = dvv::Kind::Tool};
-    }
-    static const dvv::ParameterSchema& schema() {
-        static const dvv::ParameterSchema SCHEMA;
-        return SCHEMA;
+        return {.id = "test.throwing_probe", .name = "Throwing probe"};
     }
     static Probed probe(const dvv::Capabilities& /*caps*/) {
         throw std::runtime_error("probe boom");
@@ -139,43 +108,14 @@ public:
 };
 DVV_REGISTER(IGreeter, ThrowingProbe);
 
-// Its schema has a duplicate parameter, so schema() throws from build().value().
-class BrokenSchema final : public IGreeter, public dvv::Managed<BrokenSchema> {
-public:
-    BrokenSchema(Key key, const dvv::ParameterValues& /*values*/) noexcept
-        : Managed(std::move(key)) {}
-
-    static dvv::ComponentInfo info() noexcept {
-        return {.id = "test.broken_schema", .name = "Broken schema", .kind = dvv::Kind::Tool};
-    }
-    static const dvv::ParameterSchema& schema() {
-        static const dvv::ParameterSchema SCHEMA = dvv::ParameterSchema::Builder()
-                                                       .addBool("flag", "Flag", {})
-                                                       .addBool("flag", "Flag again", {})
-                                                       .build()
-                                                       .value();
-        return SCHEMA;
-    }
-    static Probed probe(const dvv::Capabilities& /*caps*/) { return {}; }
-
-    [[nodiscard]] std::string greet() const override { return ""; }
-};
-DVV_REGISTER(IGreeter, BrokenSchema);
-
 class ThrowingConstructor final : public IGreeter, public dvv::Managed<ThrowingConstructor> {
 public:
-    ThrowingConstructor(Key key, const dvv::ParameterValues& /*values*/) : Managed(std::move(key)) {
+    explicit ThrowingConstructor(Key key) : Managed(std::move(key)) {
         throw std::runtime_error("constructor boom");
     }
 
     static dvv::ComponentInfo info() noexcept {
-        return {.id = "test.throwing_constructor",
-                .name = "Throwing constructor",
-                .kind = dvv::Kind::Tool};
-    }
-    static const dvv::ParameterSchema& schema() {
-        static const dvv::ParameterSchema SCHEMA;
-        return SCHEMA;
+        return {.id = "test.throwing_constructor", .name = "Throwing constructor"};
     }
     static Probed probe(const dvv::Capabilities& /*caps*/) { return {}; }
 
@@ -186,17 +126,13 @@ DVV_REGISTER(IGreeter, ThrowingConstructor);
 // Its constructor runs out of memory; counts the constructor calls.
 class BadAlloc final : public IGreeter, public dvv::Managed<BadAlloc> {
 public:
-    BadAlloc(Key key, const dvv::ParameterValues& /*values*/) : Managed(std::move(key)) {
+    explicit BadAlloc(Key key) : Managed(std::move(key)) {
         constructor_calls.fetch_add(1);
         throw std::bad_alloc();
     }
 
     static dvv::ComponentInfo info() noexcept {
-        return {.id = "test.bad_alloc", .name = "Bad alloc", .kind = dvv::Kind::Tool};
-    }
-    static const dvv::ParameterSchema& schema() {
-        static const dvv::ParameterSchema SCHEMA;
-        return SCHEMA;
+        return {.id = "test.bad_alloc", .name = "Bad alloc"};
     }
     static Probed probe(const dvv::Capabilities& /*caps*/) { return {}; }
 
@@ -208,15 +144,9 @@ DVV_REGISTER(IGreeter, BadAlloc);
 
 class Counter final : public ICounter, public dvv::Managed<Counter> {
 public:
-    Counter(Key key, const dvv::ParameterValues& /*values*/) noexcept : Managed(std::move(key)) {}
+    explicit Counter(Key key) noexcept : Managed(std::move(key)) {}
 
-    static dvv::ComponentInfo info() noexcept {
-        return {.id = "test.counter", .name = "Counter", .kind = dvv::Kind::Metric};
-    }
-    static const dvv::ParameterSchema& schema() {
-        static const dvv::ParameterSchema SCHEMA;
-        return SCHEMA;
-    }
+    static dvv::ComponentInfo info() noexcept { return {.id = "test.counter", .name = "Counter"}; }
     static Probed probe(const dvv::Capabilities& /*caps*/) { return {}; }
 
     [[nodiscard]] int count() const override { return 42; }
@@ -227,15 +157,10 @@ DVV_REGISTER(ICounter, Counter);
 template <int N>
 class Duplicate final : public ICounter, public dvv::Managed<Duplicate<N>> {
 public:
-    Duplicate(Key key, const dvv::ParameterValues& /*values*/) noexcept
-        : dvv::Managed<Duplicate<N>>(std::move(key)) {}
+    explicit Duplicate(Key key) noexcept : dvv::Managed<Duplicate<N>>(std::move(key)) {}
 
     static dvv::ComponentInfo info() noexcept {
-        return {.id = "test.duplicate", .name = "Duplicate", .kind = dvv::Kind::Metric};
-    }
-    static const dvv::ParameterSchema& schema() {
-        static const dvv::ParameterSchema SCHEMA;
-        return SCHEMA;
+        return {.id = "test.duplicate", .name = "Duplicate"};
     }
     static Probed probe(const dvv::Capabilities& /*caps*/) { return {}; }
 
@@ -245,37 +170,6 @@ using FirstDuplicate = Duplicate<1>;
 using SecondDuplicate = Duplicate<2>;
 DVV_REGISTER(ICounter, FirstDuplicate);
 DVV_REGISTER(ICounter, SecondDuplicate);
-
-// The final form: no schema(), no .kind, a one-argument constructor.
-class Plain final : public IGreeter, public dvv::Managed<Plain> {
-public:
-    explicit Plain(Key key) noexcept : Managed(std::move(key)) {}
-
-    static dvv::ComponentInfo info() noexcept { return {.id = "test.plain", .name = "Plain"}; }
-    static Probed probe(const dvv::Capabilities& /*caps*/) { return {}; }
-
-    [[nodiscard]] std::string greet() const override { return "plain"; }
-};
-DVV_REGISTER(IGreeter, Plain);
-
-// Both constructors: the registry uses the values form (spec §4.4).
-class BothForms final : public IGreeter, public dvv::Managed<BothForms> {
-public:
-    explicit BothForms(Key key) noexcept : Managed(std::move(key)), form_("key") {}
-    BothForms(Key key, const dvv::ParameterValues& /*values*/) noexcept
-        : Managed(std::move(key)), form_("values") {}
-
-    static dvv::ComponentInfo info() noexcept {
-        return {.id = "test.plain_both", .name = "Both forms"};
-    }
-    static Probed probe(const dvv::Capabilities& /*caps*/) { return {}; }
-
-    [[nodiscard]] std::string greet() const override { return form_; }
-
-private:
-    std::string form_;
-};
-DVV_REGISTER(IGreeter, BothForms);
 
 const dvv::ComponentStatus* findStatus(const std::vector<dvv::ComponentStatus>& statuses,
                                        std::string_view id) {
@@ -293,58 +187,39 @@ std::string reasonOf(const dvv::ComponentRegistry& registry, std::string_view id
 
 }  // namespace
 
-TEST_CASE("the registry lists registered components by kind, sorted by id") {
+TEST_CASE("list() returns every registered component, sorted by id") {
     const auto registry = dvv::ComponentRegistry::create(dvv::Capabilities{});
+    const auto all = registry->list();
+    CHECK(std::ranges::is_sorted(
+        all, {}, [](const dvv::ComponentStatus& status) { return status.info.id; }));
 
-    const auto tools = registry->list(dvv::Kind::Tool);
-    std::vector<std::string_view> ids;
-    for (const auto& status : tools) {
-        CHECK(status.info.kind == dvv::Kind::Tool);
-        ids.push_back(status.info.id);
+    // The binary also links test_modules.cpp's components, so there is no exact total.
+    const auto occurrences = [](const std::vector<dvv::ComponentStatus>& statuses,
+                                std::string_view id) {
+        return std::ranges::count_if(
+            statuses, [id](const dvv::ComponentStatus& status) { return status.info.id == id; });
+    };
+    for (const auto& by_interface : {registry->list<IGreeter>(), registry->list<ICounter>()}) {
+        for (const auto& status : by_interface) {
+            CHECK(occurrences(all, status.info.id) == occurrences(by_interface, status.info.id));
+        }
     }
-    CHECK(ids == std::vector<std::string_view>{"test.bad_alloc", "test.broken_schema",
-                                               "test.gpu_greeter", "test.greeter",
-                                               "test.throwing_constructor", "test.throwing_probe"});
 
-    const dvv::ComponentStatus* greeter = findStatus(tools, "test.greeter");
+    const dvv::ComponentStatus* greeter = findStatus(all, "test.greeter");
     REQUIRE(greeter != nullptr);
     CHECK(greeter->info == Greeter::info());
     CHECK(greeter->available());
-    CHECK(greeter->schema == &Greeter::schema());
-
-    const auto metrics = registry->list(dvv::Kind::Metric);
-    CHECK(metrics.size() == 3);  // test.counter and the two test.duplicate
-    CHECK(findStatus(metrics, "test.counter") != nullptr);
-    // A component without .kind reports Kind::Source.
-    std::vector<std::string_view> source_ids;
-    for (const auto& status : registry->list(dvv::Kind::Source)) {
-        CHECK(status.info.kind == dvv::Kind::Source);
-        source_ids.push_back(status.info.id);
-    }
-    CHECK(std::ranges::is_sorted(source_ids));
-    CHECK(std::ranges::contains(source_ids, std::string_view("test.plain")));
-    CHECK(std::ranges::contains(source_ids, std::string_view("test.plain_both")));
-
-    // Each component is listed under its one kind.
-    std::size_t listed_by_kind = 0;
-    for (const dvv::Kind kind :
-         {dvv::Kind::Source, dvv::Kind::FormatDetector, dvv::Kind::Exporter, dvv::Kind::Tool,
-          dvv::Kind::Metric, dvv::Kind::Analyser, dvv::Kind::Processor}) {
-        listed_by_kind += registry->list(kind).size();
-    }
-    CHECK(registry->list().size() == listed_by_kind);
 }
 
 TEST_CASE("list<I>() returns the components registered for I, sorted by id, available or not") {
+    static_assert(!HasSchemaField<dvv::ComponentStatus>);
     const auto registry = dvv::ComponentRegistry::create(dvv::Capabilities{});
     std::vector<std::string_view> ids;
     for (const auto& status : registry->list<IGreeter>()) {
         ids.push_back(status.info.id);
     }
-    CHECK(ids == std::vector<std::string_view>{"test.bad_alloc", "test.broken_schema",
-                                               "test.gpu_greeter", "test.greeter", "test.plain",
-                                               "test.plain_both", "test.throwing_constructor",
-                                               "test.throwing_probe"});
+    CHECK(ids == std::vector<std::string_view>{"test.bad_alloc", "test.gpu_greeter", "test.greeter",
+                                               "test.throwing_constructor", "test.throwing_probe"});
     CHECK(registry->list<ICounter>().size() == 3);  // no greeter among them
     CHECK(registry->list<IUnregistered>().empty());
 }
@@ -369,18 +244,9 @@ TEST_CASE("probes decide availability and run once per registry") {
     CHECK(GpuGreeter::probe_calls.load() == before + 2);
 }
 
-TEST_CASE("throwing probes and schemas make a component unavailable") {
+TEST_CASE("a throwing probe makes a component unavailable") {
     const auto registry = dvv::ComponentRegistry::create(dvv::Capabilities{});
     CHECK(reasonOf(*registry, "test.throwing_probe") == "Internal: probe() threw: probe boom");
-    // The reason carries the Error of the failed build().value(), with its source location.
-    const std::string schema_reason = reasonOf(*registry, "test.broken_schema");
-    const std::string_view expected =
-        "Internal: schema() threw: Internal: parameter schema: duplicate parameter 'flag'";
-    CHECK(schema_reason.starts_with(expected));
-    const auto statuses = registry->list();
-    const dvv::ComponentStatus* broken = findStatus(statuses, "test.broken_schema");
-    REQUIRE(broken != nullptr);
-    CHECK(broken->schema == nullptr);
 
     const auto created = registry->createComponent<IGreeter>("test.throwing_probe");
     REQUIRE_FALSE(created.has_value());
@@ -391,43 +257,37 @@ TEST_CASE("throwing probes and schemas make a component unavailable") {
 
 TEST_CASE("a duplicated id disables every component that claims it") {
     const auto registry = dvv::ComponentRegistry::create(dvv::Capabilities{});
-    const auto metrics = registry->list(dvv::Kind::Metric);
-    const auto duplicates = std::ranges::count_if(metrics, [](const dvv::ComponentStatus& status) {
-        return status.info.id == "test.duplicate" && status.unavailable &&
-               status.unavailable->reason == "Internal: duplicate component id: test.duplicate";
-    });
+    const auto duplicates =
+        std::ranges::count_if(registry->list<ICounter>(), [](const dvv::ComponentStatus& status) {
+            return status.info.id == "test.duplicate" && status.unavailable &&
+                   status.unavailable->reason == "Internal: duplicate component id: test.duplicate";
+        });
     CHECK(duplicates == 2);
     const auto created = registry->createComponent<ICounter>("test.duplicate");
     REQUIRE_FALSE(created.has_value());
     CHECK(created.error().code == dvv::Errc::Unsupported);
 }
 
-TEST_CASE("createComponent builds a component with validated and completed parameters") {
+TEST_CASE("createComponent builds a component the registry owns") {
     auto& lifetimes = dvv::LifetimeRegistry::instance();
     const auto registry = dvv::ComponentRegistry::create(dvv::Capabilities{});
     const std::size_t live_before = lifetimes.liveCount();
 
-    auto plain = registry->createComponent<IGreeter>("test.greeter");
-    REQUIRE(plain.has_value());
-    CHECK((*plain)->greet() == "hello");
-
-    auto custom = registry->createComponent<IGreeter>(
-        "test.greeter", {{"greeting", std::string("hi")}, {"repeat", std::int64_t{3}}});
-    REQUIRE(custom.has_value());
-    CHECK((*custom)->greet() == "hi hi hi");
-    CHECK(lifetimes.liveCount() == live_before + 2);
-
-    // The registry is the recorded owner of what it creates.
-    const auto* managed = dynamic_cast<const dvv::ManagedObject*>(custom->get());
-    REQUIRE(managed != nullptr);
-    CHECK(managed->ownerId() == registry->objectId());
+    auto greeter = registry->createComponent<IGreeter>("test.greeter");
+    REQUIRE(greeter.has_value());
+    CHECK((*greeter)->greet() == "hello");
 
     auto counter = registry->createComponent<ICounter>("test.counter");
     REQUIRE(counter.has_value());
     CHECK((*counter)->count() == 42);
+    CHECK(lifetimes.liveCount() == live_before + 2);
 
-    plain->reset();
-    custom->reset();
+    // The registry is the recorded owner of what it creates.
+    const auto* managed = dynamic_cast<const dvv::ManagedObject*>(greeter->get());
+    REQUIRE(managed != nullptr);
+    CHECK(managed->ownerId() == registry->objectId());
+
+    greeter->reset();
     counter->reset();
     CHECK(lifetimes.liveCount() == live_before);
 }
@@ -470,52 +330,17 @@ TEST_CASE("create records its caller as the creation site") {
     CHECK(where.line() == line);
 }
 
-TEST_CASE(
-    "a schema-less component with a one-argument constructor registers, lists and is created") {
-    const auto registry = dvv::ComponentRegistry::create(dvv::Capabilities{});
-    CHECK(reasonOf(*registry, "test.plain").empty());
-    auto plain = registry->createComponent<IGreeter>("test.plain");
-    REQUIRE(plain.has_value());
-    CHECK((*plain)->greet() == "plain");
-}
-
-TEST_CASE("a schema-less component's status has an empty schema") {
-    const auto registry = dvv::ComponentRegistry::create(dvv::Capabilities{});
-    const auto statuses = registry->list();
-    const dvv::ComponentStatus* plain = findStatus(statuses, "test.plain");
-    REQUIRE(plain != nullptr);
-    CHECK(plain->available());
-    REQUIRE(plain->schema != nullptr);
-    CHECK(plain->schema->parameters().empty());
-}
-
-TEST_CASE("a component with both constructors is built with the values form") {
-    const auto registry = dvv::ComponentRegistry::create(dvv::Capabilities{});
-    const auto created = registry->createComponent<IGreeter>("test.plain_both");
-    REQUIRE(created.has_value());
-    CHECK((*created)->greet() == "values");
-}
-
-TEST_CASE("a schema-less component rejects parameter values") {
-    const auto registry = dvv::ComponentRegistry::create(dvv::Capabilities{});
-    const auto created =
-        registry->createComponent<IGreeter>("test.plain", {{"repeat", std::int64_t{2}}});
-    REQUIRE_FALSE(created.has_value());
-    CHECK(created.error().code == dvv::Errc::Format);
-    CHECK(created.error().message.find("repeat") != std::string::npos);
-}
-
 TEST_CASE("createComponent(id, where) records where") {
     auto& lifetimes = dvv::LifetimeRegistry::instance();
     const bool previous = lifetimes.detailed();
     lifetimes.setDetailed(true);
     const auto registry = dvv::ComponentRegistry::create(dvv::Capabilities{});
     const std::source_location where = std::source_location::current();
-    auto plain = registry->createComponent<IGreeter>("test.plain", where);
+    auto greeter = registry->createComponent<IGreeter>("test.greeter", where);
     lifetimes.setDetailed(previous);
-    REQUIRE(plain.has_value());
+    REQUIRE(greeter.has_value());
 
-    const auto* managed = dynamic_cast<const dvv::ManagedObject*>(plain->get());
+    const auto* managed = dynamic_cast<const dvv::ManagedObject*>(greeter->get());
     REQUIRE(managed != nullptr);
     const auto objects = lifetimes.liveObjects();
     const auto found = std::ranges::find(objects, managed->objectId(), &dvv::LiveObjectInfo::id);
@@ -526,20 +351,7 @@ TEST_CASE("createComponent(id, where) records where") {
     CHECK(created_at.line() == where.line());
 }
 
-TEST_CASE("every createComponent form of 0.1.1 still compiles") {
-    const auto registry = dvv::ComponentRegistry::create(dvv::Capabilities{});
-    const std::source_location here = std::source_location::current();
-    const std::source_location& where = here;
-    CHECK(registry->createComponent<IGreeter>("test.greeter").has_value());
-    CHECK(registry->createComponent<IGreeter>("test.greeter", {}).has_value());
-    CHECK(registry->createComponent<IGreeter>("test.greeter", dvv::ParameterValues{}).has_value());
-    CHECK(registry->createComponent<IGreeter>("test.greeter", {{"repeat", std::int64_t{3}}})
-              .has_value());
-    CHECK(registry->createComponent<IGreeter>("test.greeter", {}, here).has_value());
-    CHECK(registry->createComponent<IGreeter>("test.greeter", where).has_value());
-}
-
-TEST_CASE("createComponent reports unknown ids, other interfaces and invalid values") {
+TEST_CASE("createComponent reports unknown ids and other interfaces") {
     const auto registry = dvv::ComponentRegistry::create(dvv::Capabilities{});
 
     const auto unknown = registry->createComponent<IGreeter>("test.missing");
@@ -553,13 +365,6 @@ TEST_CASE("createComponent reports unknown ids, other interfaces and invalid val
     CHECK(wrong_interface.error().message.starts_with(
         "component 'test.greeter' does not implement "));
     CHECK(wrong_interface.error().message.find("ICounter") != std::string::npos);
-
-    const auto invalid =
-        registry->createComponent<IGreeter>("test.greeter", {{"repeat", std::int64_t{9}}});
-    REQUIRE_FALSE(invalid.has_value());
-    CHECK(invalid.error().code == dvv::Errc::Format);
-    CHECK(invalid.error().message ==
-          "component 'test.greeter': parameter 'repeat': 9 is outside [1, 3]");
 }
 
 TEST_CASE("a throwing constructor disables the component for the registry's lifetime") {
@@ -625,9 +430,8 @@ TEST_CASE("the registry creates and lists components from several threads at onc
     for (int thread = 0; thread < THREADS; ++thread) {
         threads.emplace_back([&] {
             for (int round = 0; round < ROUNDS; ++round) {
-                const auto greeter = registry->createComponent<IGreeter>(
-                    "test.greeter", {{"repeat", std::int64_t{2}}});
-                if (greeter.has_value() && (*greeter)->greet() == "hello hello") {
+                const auto greeter = registry->createComponent<IGreeter>("test.greeter");
+                if (greeter.has_value() && (*greeter)->greet() == "hello") {
                     greeted.fetch_add(1);
                 } else {
                     unexpected.fetch_add(1);

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 4.2)
-project(dvv_registry VERSION 0.2.0 DESCRIPTION "dvv component registry" LANGUAGES CXX)
+project(dvv_registry VERSION 0.3.0 DESCRIPTION "dvv component registry" LANGUAGES CXX)
 # Version string; a pre-release build adds its release-stage label (user decision U-M4ORDER).
 set(dvv_registry_VERSION_STRING "${PROJECT_VERSION}")
 
@@ -30,10 +30,8 @@ include(CMakePackageConfigHelpers)
 
 add_library(dvv_registry STATIC
     src/capabilities.cpp
-    src/component_info.cpp
     src/component_registry.cpp
-    src/module.cpp
-    src/parameters.cpp)
+    src/module.cpp)
 add_library(dvv::registry ALIAS dvv_registry)
 set_target_properties(dvv_registry PROPERTIES EXPORT_NAME registry)
 target_include_directories(dvv_registry PUBLIC
@@ -49,7 +47,7 @@ install(EXPORT dvv_registryTargets NAMESPACE dvv:: DESTINATION ${config_dir})
 configure_package_config_file(cmake/dvv_registryConfig.cmake.in
     ${CMAKE_CURRENT_BINARY_DIR}/dvv_registryConfig.cmake INSTALL_DESTINATION ${config_dir})
 write_basic_package_version_file(${CMAKE_CURRENT_BINARY_DIR}/dvv_registryConfigVersion.cmake
-    COMPATIBILITY SameMajorVersion)
+    COMPATIBILITY SameMinorVersion)
 install(FILES
     ${CMAKE_CURRENT_BINARY_DIR}/dvv_registryConfig.cmake
     ${CMAKE_CURRENT_BINARY_DIR}/dvv_registryConfigVersion.cmake

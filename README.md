@@ -16,7 +16,7 @@ version from the same file:
 
 ```powershell
 git clone https://github.com/BarabashkaD/dvv-registry
-git clone --branch v0.5.1 https://github.com/BarabashkaD/dvv-build
+git clone --branch v0.6.0 https://github.com/BarabashkaD/dvv-build
 python -m pip install -r dvv-build/tools/requirements.txt
 cmake -DREPO=dvv-registry -P dvv-build/tools/fetch-deps.cmake
 ./dvv-build/bootstrap.ps1
@@ -87,7 +87,7 @@ struct ExampleModule {
         return {.id = "example", .name = "Example", .produces = PRODUCES};
     }
     // Open what the module needs; options are this module's entry of ModuleOptions.
-    static dvv::ModuleLoad load(const dvv::ParameterValues& /*options*/) {
+    static dvv::ModuleLoad load(const dvv::ModuleValues& /*options*/) {
         return {.provides = {std::string(EXAMPLE_CAPABILITY)},
                 .properties = {{std::string(dvv::MODULE_VERSION_PROPERTY), "1.0"}}};
     }
@@ -113,7 +113,7 @@ dvv_link_components(my_app greeting)     # never a plain target_link_libraries f
 int main() {
     // Each module gets its own options, by module id; a module without an entry gets none.
     auto registry = dvv::ComponentRegistry::load(
-        {.modules = {{"example", {{"greeting", std::string("Hello")}}}}});
+        {.modules = {{"example", {{"greeting", "Hello"}}}}});
     for (const dvv::ModuleStatus& module : registry->modules()) {
         std::println("{}: {}", module.info.name, module.available() ? "available" : "unavailable");
     }
@@ -137,8 +137,9 @@ the `produces` list (`load()` checks it):
 - A component class is `final`, derives `dvv::Managed<T>` and the interface, and its constructor
   takes `dvv::CreationKey<dvv::ComponentRegistry>`. `info()` is `noexcept` and returns a unique,
   stable id; `probe()` is static.
-- A module type has static `info() noexcept` and `load(const dvv::ParameterValues&)`. Its id is
-  unique among modules, and `produces` lists every capability `load()` may provide.
+- A module type has static `info() noexcept` and `load(const dvv::ModuleValues&)`; its options are
+  text, by option name. Its id is unique among modules, and `produces` lists every capability
+  `load()` may provide.
 - Both macros stand at namespace scope in a `.cpp` of a static component library linked with
   `dvv_link_components()`. A library linked both ways is rejected by CMake.
 - Create the registry from `main`, never during static initialisation.
@@ -159,14 +160,5 @@ the `produces` list (`load()` checks it):
   A throwing constructor makes `createComponent()` return `Errc::Internal` and disables the
   component; `std::bad_alloc` returns `Errc::OutOfMemory`. Two components with the same id are both
   unavailable. An unknown or unavailable id is `Errc::Unsupported`.
-
-## Deprecated (removed in 1.0.0)
-
-- Parameter schemas: `ParameterSchema` and its parameter-description types, a component's
-  `schema()`, the constructor that takes `const dvv::ParameterValues&`, `createComponent`'s values
-  argument and `ComponentStatus::schema`. They still work in 0.2.x. `ParameterValues` stays; module
-  options use it.
-- `Kind`, `kindName`, `ComponentInfo::kind`, `InterfaceKind`, `HasInterfaceKind`, `list(Kind)` and
-  the kind check: a component's interface is its category; use `list<I>()`.
 
 Licence: MIT.

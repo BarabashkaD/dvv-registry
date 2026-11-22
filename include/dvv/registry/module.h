@@ -32,7 +32,6 @@
 #include <vector>
 
 #include "dvv/base/error.h"
-#include "dvv/registry/parameters.h"
 
 namespace dvv {
 
@@ -47,8 +46,8 @@ struct ModuleInfo {
 };
 
 // One property a module learned at load, e.g. {"version", "n8.1.3"}. UTF-8 text, except
-// MODULE_DIRECTORY_PROPERTY, which is path text (dvv::pathFromText of dvv-base 0.5.0 gives the
-// folder; show it with dvv::pathDisplayText).
+// MODULE_DIRECTORY_PROPERTY, which is path text (dvv::pathFromText gives the folder; show it with
+// dvv::pathDisplayText).
 struct ModuleProperty {
     std::string key;
     std::string value;
@@ -93,15 +92,20 @@ struct ModuleStatus {
     std::optional<std::string_view> property(std::string_view key) const&& = delete;
 };
 
+// One module's options: option name to text, sorted by name. The module defines its option names
+// and reads each value as UTF-8 text; an option that holds a path carries dvv-base path text
+// (dvv::pathFromText gives the path). The registry does not interpret the values.
+using ModuleValues = std::map<std::string, std::string, std::less<>>;
+
 // Options for ComponentRegistry::load(): each module's values, by module id. A module checks its
 // own keys; one without an entry gets empty values.
 struct ModuleOptions {
-    std::map<std::string, ParameterValues, std::less<>> modules{};
+    std::map<std::string, ModuleValues, std::less<>> modules{};
 };
 
-// T is a loadable module: static info() noexcept and load(const ParameterValues&).
+// T is a loadable module: static info() noexcept and load(const ModuleValues&).
 template <class T>
-concept Module = requires(const ParameterValues& options) {
+concept Module = requires(const ModuleValues& options) {
     { T::info() } noexcept -> std::same_as<ModuleInfo>;
     { T::load(options) } -> std::same_as<ModuleLoad>;
 };
@@ -125,7 +129,7 @@ public:
 private:
     friend class dvv::ComponentRegistry;
     using InfoFunction = ModuleInfo (*)() noexcept;
-    using LoadFunction = ModuleLoad (*)(const ParameterValues&);
+    using LoadFunction = ModuleLoad (*)(const ModuleValues&);
 
     ModuleRegistrationNode(InfoFunction info, LoadFunction load) noexcept;  // links the node
 
@@ -140,7 +144,7 @@ template <class T>
     requires Module<T>
 ModuleRegistrationNode::ModuleRegistrationNode(std::type_identity<T> /*type*/) noexcept
     : ModuleRegistrationNode([]() noexcept { return T::info(); },
-                             [](const ParameterValues& options) { return T::load(options); }) {}
+                             [](const ModuleValues& options) { return T::load(options); }) {}
 
 }  // namespace detail
 
@@ -149,11 +153,11 @@ ModuleRegistrationNode::ModuleRegistrationNode(std::type_identity<T> /*type*/) n
 // Registers module Type; use once at namespace scope in a .cpp of a static component library
 // linked with dvv_link_components(), followed by a semicolon.
 // NOLINTBEGIN(bugprone-macro-parentheses)
-#define DVV_REGISTER_MODULE(Type)                                                               \
-    static_assert(::dvv::Module<Type>, "DVV_REGISTER_MODULE: " #Type                            \
-                                       " must provide static info() noexcept -> "               \
-                                       "dvv::ModuleInfo and load(const dvv::ParameterValues&) " \
-                                       "-> dvv::ModuleLoad");                                   \
-    static const ::dvv::detail::ModuleRegistrationNode DVV_DETAIL_CONCAT(                       \
+#define DVV_REGISTER_MODULE(Type)                                                            \
+    static_assert(::dvv::Module<Type>, "DVV_REGISTER_MODULE: " #Type                         \
+                                       " must provide static info() noexcept -> "            \
+                                       "dvv::ModuleInfo and load(const dvv::ModuleValues&) " \
+                                       "-> dvv::ModuleLoad");                                \
+    static const ::dvv::detail::ModuleRegistrationNode DVV_DETAIL_CONCAT(                    \
         dvv_module_registration_, __LINE__)(std::type_identity<Type>{})
 // NOLINTEND(bugprone-macro-parentheses)

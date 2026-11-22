@@ -2,9 +2,41 @@
 
 All notable changes to dvv-registry. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow semantic versioning with
-the dvv rules: compatible = the same major and at least the minimum version, also for 0.x; breaking
-changes only in a new major, after a deprecation. This file is the release notes (there are no
-GitHub Releases).
+the dvv rules: compatible = the same 0.minor and at least the minimum version; a replaced or
+unused API is removed in the next 0.x minor, with no deprecation period. This file is the release
+notes (there are no GitHub Releases).
+
+## [0.3.0] - 2026-11-22
+
+Components have one form and module options are text: the parameter schemas and component kinds
+are removed.
+
+### Removed
+- `dvv/registry/parameters.h`: `ParameterSchema`, `ParameterSchema::Builder`, `Parameter`,
+  `IntParameter`, `FloatParameter`, `BoolParameter`, `EnumParameter`, `RangeParameter`,
+  `ColourParameter`, `ParameterType`, `parameterTypeName`, `parameterTypeOf`, `ParameterValue`,
+  `ParameterValues`, `Range` and `Colour`.
+- A component's `schema()`, the `(CreationKey, const ParameterValues&)` constructor,
+  `createComponent`'s values argument and `ComponentStatus::schema`. A component has one
+  constructor, taking `CreationKey<ComponentRegistry>`; `createComponent<I>(id, where)` is the one
+  form, `where` defaulting to the caller.
+- `Kind`, `kindName`, `ComponentInfo::kind`, `InterfaceKind`, `HasInterfaceKind`, `list(Kind)` and
+  the kind check. Use `list<I>()`.
+
+### Changed
+- Module options are text: `ModuleValues` (`std::map<std::string, std::string, std::less<>>`,
+  `module.h`) replaces `ParameterValues` in `ModuleOptions::modules`, in a module's
+  `load(const ModuleValues&)` and in the `Module` concept. A value of another type no longer
+  compiles.
+- `ComponentInfo` holds `id`, `name` and `version`; `ComponentStatus` holds `info` and
+  `unavailable`.
+- The reason of a throwing `load()`, `probe()` or constructor comes from dvv-base's
+  `describeCurrentException()`; the texts are unchanged.
+- Compatible means the same 0.minor and at least the minimum version; the package version file
+  uses `SameMinorVersion`.
+- The registry headers no longer include `json.h`, `<variant>`, `<cstddef>`, `<cstdint>` and
+  `<limits>`; a consumer that relied on those includes them itself.
+- Requires dvv-build 0.6.0 and dvv-base 0.6.0.
 
 ## [0.2.0] - 2026-11-21
 
