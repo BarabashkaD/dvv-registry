@@ -4,11 +4,8 @@ add_executable(dvv_registry_tests
     main.cpp
     test_capabilities.cpp
     test_component_registry.cpp
-    test_interface_kind.cpp
     test_modules.cpp
-    test_modules_duplicate.cpp
-    test_parameter_io.cpp
-    test_parameters.cpp)
+    test_modules_duplicate.cpp)
 target_link_libraries(dvv_registry_tests PRIVATE dvv::registry doctest::doctest)
 # doctest otherwise only forward-declares std::ostream, which breaks printing std types.
 target_compile_definitions(dvv_registry_tests PRIVATE DOCTEST_CONFIG_USE_STD_HEADERS)
@@ -71,12 +68,10 @@ if(NOT DVV_SANITIZE)
         LABELS package)
 endif()
 
-# Compile-fail tests (spec §9.4). Case 0 is the control and must build; cases 1-8 must fail to
+# Compile-fail tests (spec §9.4). Case 0 is the control and must build; cases 1-6 must fail to
 # compile with the expected diagnostic: a forged registry key (1), construction without a key (2),
 # DVV_REGISTER of a class that is not final (3), takes another authority's key (4) or lacks
-# probe() (5), DVV_REGISTER_MODULE of a module without load() (6), DVV_REGISTER of a class with
-# schema() but only the one-argument constructor (7), and of a class without a constructor the
-# registry can call (8).
+# probe() (5), DVV_REGISTER_MODULE of a module without load() (6).
 set(compile_fail_source ${CMAKE_CURRENT_SOURCE_DIR}/compile_fail/direct_construction.cpp)
 add_executable(dvv_registry_compile_ok ${compile_fail_source})
 target_compile_definitions(dvv_registry_compile_ok PRIVATE DVV_COMPILE_FAIL_CASE=0)
@@ -89,8 +84,8 @@ else()
 endif()
 list(APPEND compile_fail_patterns
      "must be final" "must be constructible from" "must implement IWidget"
-     "must provide static info" "declares schema" "must be constructible from")
-foreach(case IN ITEMS 1 2 3 4 5 6 7 8)
+     "must provide static info")
+foreach(case IN ITEMS 1 2 3 4 5 6)
     set(target dvv_registry_compile_fail_${case})
     add_executable(${target} EXCLUDE_FROM_ALL ${compile_fail_source})
     target_compile_definitions(${target} PRIVATE DVV_COMPILE_FAIL_CASE=${case})

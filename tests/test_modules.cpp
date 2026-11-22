@@ -9,8 +9,12 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <concepts>
 #include <cstddef>
+#include <cstdint>
 #include <expected>
+#include <functional>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -23,6 +27,7 @@
 #include <utility>
 #include <vector>
 
+#include "dvv/base/error.h"
 #include "dvv/base/lifetime.h"
 #include "dvv/base/log.h"
 #include "dvv/registry/component_registry.h"
@@ -33,18 +38,18 @@ namespace {
 // The values a module's load() got last, guarded by one mutex.
 class RecordedValues {
 public:
-    void record(const dvv::ParameterValues& values) {
+    void record(const dvv::ModuleValues& values) {
         const std::lock_guard lock(mutex_);
         values_ = values;
     }
-    [[nodiscard]] dvv::ParameterValues last() const {
+    [[nodiscard]] dvv::ModuleValues last() const {
         const std::lock_guard lock(mutex_);
         return values_;
     }
 
 private:
     mutable std::mutex mutex_;
-    dvv::ParameterValues values_;
+    dvv::ModuleValues values_;
 };
 
 RecordedValues ready_values;
@@ -56,7 +61,7 @@ struct ReadyModule {
     static dvv::ModuleInfo info() noexcept {
         return {.id = "test.mod.ready", .name = "Ready", .produces = READY_PRODUCES};
     }
-    static dvv::ModuleLoad load(const dvv::ParameterValues& options) {
+    static dvv::ModuleLoad load(const dvv::ModuleValues& options) {
         ready_values.record(options);
         return {
             .provides = {"test.ready"},
@@ -70,7 +75,7 @@ DVV_REGISTER_MODULE(ReadyModule);
 // Produces nothing; records the values it got.
 struct OptionsModule {
     static dvv::ModuleInfo info() noexcept { return {.id = "test.mod.options", .name = "Options"}; }
-    static dvv::ModuleLoad load(const dvv::ParameterValues& options) {
+    static dvv::ModuleLoad load(const dvv::ModuleValues& options) {
         options_values.record(options);
         return {};
     }
@@ -97,7 +102,7 @@ struct CountingModule {
     static dvv::ModuleInfo info() noexcept {
         return {.id = "test.mod.counting", .name = "Counting"};
     }
-    static dvv::ModuleLoad load(const dvv::ParameterValues& /*options*/) {
+    static dvv::ModuleLoad load(const dvv::ModuleValues& /*options*/) {
         ++counting_loads;
         return {.handle = std::make_shared<CountedState>()};
     }
@@ -112,7 +117,7 @@ struct MessyModule {
     static dvv::ModuleInfo info() noexcept {
         return {.id = "test.mod.messy", .name = "Messy", .produces = MESSY_PRODUCES};
     }
-    static dvv::ModuleLoad load(const dvv::ParameterValues& /*options*/) {
+    static dvv::ModuleLoad load(const dvv::ModuleValues& /*options*/) {
         return {.provides = {"test.m.c", "test.m.a", "test.m.c"}, .reason = "test.m.b is off"};
     }
 };
@@ -126,7 +131,7 @@ struct CompleteModule {
     static dvv::ModuleInfo info() noexcept {
         return {.id = "test.mod.complete", .name = "Complete", .produces = COMPLETE_PRODUCES};
     }
-    static dvv::ModuleLoad load(const dvv::ParameterValues& /*options*/) {
+    static dvv::ModuleLoad load(const dvv::ModuleValues& /*options*/) {
         return {.provides = {"test.c.one", "test.c.two"}, .reason = "stray text"};
     }
 };
@@ -141,7 +146,7 @@ struct SharedOneModule {
         return {
             .id = "test.mod.shared_cap.one", .name = "Shared one", .produces = SHARED_CAP_PRODUCES};
     }
-    static dvv::ModuleLoad load(const dvv::ParameterValues& /*options*/) {
+    static dvv::ModuleLoad load(const dvv::ModuleValues& /*options*/) {
         return {.provides = {"test.shared_cap"}};
     }
 };
@@ -153,7 +158,7 @@ struct SharedTwoModule {
         return {
             .id = "test.mod.shared_cap.two", .name = "Shared two", .produces = SHARED_CAP_PRODUCES};
     }
-    static dvv::ModuleLoad load(const dvv::ParameterValues& /*options*/) {
+    static dvv::ModuleLoad load(const dvv::ModuleValues& /*options*/) {
         return {.provides = {"test.shared_cap"}};
     }
 };
@@ -167,7 +172,7 @@ struct RepeatsModule {
     static dvv::ModuleInfo info() noexcept {
         return {.id = "test.mod.repeats", .name = "Repeats", .produces = REPEATS_PRODUCES};
     }
-    static dvv::ModuleLoad load(const dvv::ParameterValues& /*options*/) {
+    static dvv::ModuleLoad load(const dvv::ModuleValues& /*options*/) {
         return {.provides = {"test.r.a"}};
     }
 };
@@ -181,7 +186,7 @@ struct DuplicateModule {
     static dvv::ModuleInfo info() noexcept {
         return {.id = "test.mod.dup", .name = "Duplicate (first)", .produces = DUP_PRODUCES};
     }
-    static dvv::ModuleLoad load(const dvv::ParameterValues& /*options*/) {
+    static dvv::ModuleLoad load(const dvv::ModuleValues& /*options*/) {
         ++dvv::test::duplicate_module_loads;
         return {.provides = {"test.dup"}};
     }
@@ -196,7 +201,7 @@ struct ThrowsModule {
     static dvv::ModuleInfo info() noexcept {
         return {.id = "test.mod.throws", .name = "Throws", .produces = THROWS_PRODUCES};
     }
-    static dvv::ModuleLoad load(const dvv::ParameterValues& /*options*/) {
+    static dvv::ModuleLoad load(const dvv::ModuleValues& /*options*/) {
         throw std::runtime_error("cannot open /fake/modules/lib");
     }
 };
@@ -208,10 +213,22 @@ struct ThrowsOtherModule {
     static dvv::ModuleInfo info() noexcept {
         return {.id = "test.mod.throws_other", .name = "Throws other"};
     }
-    static dvv::ModuleLoad load(const dvv::ParameterValues& /*options*/) { throw 42; }
+    static dvv::ModuleLoad load(const dvv::ModuleValues& /*options*/) { throw 42; }
 };
 
 DVV_REGISTER_MODULE(ThrowsOtherModule);
+
+// Produces nothing; throws from a failed Result<T>::value(), so the reason is Error::describe().
+struct ResultThrowsModule {
+    static dvv::ModuleInfo info() noexcept {
+        return {.id = "test.mod.result_throws", .name = "Result throws"};
+    }
+    static dvv::ModuleLoad load(const dvv::ModuleValues& /*options*/) {
+        return dvv::Result<dvv::ModuleLoad>(dvv::makeError(dvv::Errc::Format, "bad option"))
+            .value();
+    }
+};
+DVV_REGISTER_MODULE(ResultThrowsModule);
 
 constexpr std::array<std::string_view, 1> UNDECLARED_PRODUCES{"test.declared"};
 
@@ -220,7 +237,7 @@ struct UndeclaredModule {
     static dvv::ModuleInfo info() noexcept {
         return {.id = "test.mod.undeclared", .name = "Undeclared", .produces = UNDECLARED_PRODUCES};
     }
-    static dvv::ModuleLoad load(const dvv::ParameterValues& /*options*/);
+    static dvv::ModuleLoad load(const dvv::ModuleValues& /*options*/);
 };
 
 DVV_REGISTER_MODULE(UndeclaredModule);
@@ -274,7 +291,7 @@ std::shared_ptr<void> ordered(std::string name) {
     return std::make_shared<OrderedState>(std::move(name));
 }
 
-dvv::ModuleLoad UndeclaredModule::load(const dvv::ParameterValues& /*options*/) {
+dvv::ModuleLoad UndeclaredModule::load(const dvv::ModuleValues& /*options*/) {
     auto handle = std::make_shared<int>(0);
     withModuleStates([&handle](ModuleStates& states) { states.undeclared = handle; });
     return {.provides = {"test.declared", "test.undeclared"},
@@ -285,7 +302,7 @@ dvv::ModuleLoad UndeclaredModule::load(const dvv::ParameterValues& /*options*/) 
 // Produce nothing; their handles log their release.
 struct OrderAModule {
     static dvv::ModuleInfo info() noexcept { return {.id = "test.mod.order.a", .name = "Order A"}; }
-    static dvv::ModuleLoad load(const dvv::ParameterValues& /*options*/) {
+    static dvv::ModuleLoad load(const dvv::ModuleValues& /*options*/) {
         return {.handle = ordered("a")};
     }
 };
@@ -294,7 +311,7 @@ DVV_REGISTER_MODULE(OrderAModule);
 
 struct OrderBModule {
     static dvv::ModuleInfo info() noexcept { return {.id = "test.mod.order.b", .name = "Order B"}; }
-    static dvv::ModuleLoad load(const dvv::ParameterValues& /*options*/) {
+    static dvv::ModuleLoad load(const dvv::ModuleValues& /*options*/) {
         return {.handle = ordered("b")};
     }
 };
@@ -304,7 +321,7 @@ DVV_REGISTER_MODULE(OrderBModule);
 // Keeps only a weak_ptr to its handle.
 struct WeakModule {
     static dvv::ModuleInfo info() noexcept { return {.id = "test.mod.weak", .name = "Weak"}; }
-    static dvv::ModuleLoad load(const dvv::ParameterValues& /*options*/) {
+    static dvv::ModuleLoad load(const dvv::ModuleValues& /*options*/) {
         auto handle = std::make_shared<int>(0);
         withModuleStates([&handle](ModuleStates& states) { states.weak = handle; });
         return {.handle = std::move(handle)};
@@ -316,7 +333,7 @@ DVV_REGISTER_MODULE(WeakModule);
 // Keeps its own shared_ptr copy of its handle, as for components that use its state.
 struct SharedModule {
     static dvv::ModuleInfo info() noexcept { return {.id = "test.mod.shared", .name = "Shared"}; }
-    static dvv::ModuleLoad load(const dvv::ParameterValues& /*options*/) {
+    static dvv::ModuleLoad load(const dvv::ModuleValues& /*options*/) {
         auto handle = std::make_shared<int>(0);
         withModuleStates([&handle](ModuleStates& states) {
             states.sharedCopy = handle;
@@ -331,7 +348,7 @@ DVV_REGISTER_MODULE(SharedModule);
 // Produces nothing and provides nothing, yet keeps state.
 struct IdleModule {
     static dvv::ModuleInfo info() noexcept { return {.id = "test.mod.idle", .name = "Idle"}; }
-    static dvv::ModuleLoad load(const dvv::ParameterValues& /*options*/) {
+    static dvv::ModuleLoad load(const dvv::ModuleValues& /*options*/) {
         auto handle = std::make_shared<int>(0);
         withModuleStates([&handle](ModuleStates& states) { states.idle = handle; });
         return {.handle = std::move(handle)};
@@ -478,9 +495,20 @@ std::shared_ptr<void> tracked(std::string name, std::vector<std::string>& log, b
 template <class S>
 concept PropertyOnRvalue = requires(S&& s) { std::move(s).property("version"); };
 
+// An option value is text: only text builds module options.
+template <class V>
+concept BuildsModuleOptions =
+    requires(V value) { dvv::ModuleOptions{.modules = {{"m", {{"k", value}}}}}; };
+
 }  // namespace
 
 TEST_CASE("a module registered with DVV_REGISTER_MODULE satisfies Module") {
+    static_assert(std::same_as<dvv::ModuleValues, std::map<std::string, std::string, std::less<>>>);
+    static_assert(BuildsModuleOptions<const char*>);
+    static_assert(BuildsModuleOptions<std::string>);
+    static_assert(!BuildsModuleOptions<bool>);
+    static_assert(!BuildsModuleOptions<std::int64_t>);
+    static_assert(!BuildsModuleOptions<double>);
     static_assert(dvv::Module<ReadyModule>);
     static_assert(!dvv::Module<NoLoad>);
 }
@@ -547,9 +575,9 @@ TEST_CASE("create runs no module") {
 
 // last() holds this test's load() only because doctest runs the test cases one after another.
 TEST_CASE("module options reach their module and only it") {
-    const auto registry = dvv::ComponentRegistry::load(
-        {.modules = {{"test.mod.options", {{"k", std::string("v")}}}}});
-    CHECK(options_values.last() == dvv::ParameterValues{{"k", std::string("v")}});
+    const auto registry =
+        dvv::ComponentRegistry::load({.modules = {{"test.mod.options", {{"k", "v"}}}}});
+    CHECK(options_values.last() == dvv::ModuleValues{{"k", "v"}});
     CHECK(ready_values.last().empty());
 }
 
@@ -669,6 +697,16 @@ TEST_CASE("a load that throws a non-exception provides nothing") {
     CHECK(throws_other->reason == "Internal: load() threw: unknown exception");
     CHECK(throws_other->provides.empty());
     CHECK(throws_other->withheld.empty());
+}
+
+TEST_CASE("a load that throws from a failed Result names the error") {
+    const auto registry = dvv::ComponentRegistry::load();
+    const dvv::ModuleStatus* result_throws = registry->module("test.mod.result_throws");
+    REQUIRE(result_throws != nullptr);
+    CHECK(result_throws->reason.starts_with(
+        "Internal: load() threw: Format: bad option [test_modules.cpp:"));
+    CHECK(result_throws->provides.empty());
+    CHECK(result_throws->withheld.empty());
 }
 
 TEST_CASE("a duplicated module id is never loaded") {

@@ -1,7 +1,6 @@
 #include "dvv/registry/component_registry.h"
 
 #include <algorithm>
-#include <exception>
 #include <format>
 #include <iterator>
 #include <ranges>
@@ -16,15 +15,9 @@ namespace detail {
 constinit RegistrationNode* RegistrationNode::list_head = nullptr;
 
 RegistrationNode::RegistrationNode(const std::type_info& interface,
-                                   std::optional<Kind> interface_kind,
                                    RegistrationHooks hooks) noexcept
-    : interface_(&interface), interface_kind_(interface_kind), hooks_(hooks), next_(list_head) {
+    : interface_(&interface), hooks_(hooks), next_(list_head) {
     list_head = this;
-}
-
-const ParameterSchema& noParameters() noexcept {
-    static const ParameterSchema NONE;
-    return NONE;
 }
 
 ModuleHandles::~ModuleHandles() {
@@ -42,20 +35,6 @@ void ModuleHandles::add(std::shared_ptr<void> handle) {
 }  // namespace detail
 
 namespace {
-
-// Describes the exception being handled; call only from a catch block.
-std::string describeCurrentException() {
-    try {
-        throw;
-    } catch (const std::bad_expected_access<Error>& error) {
-        // A failed Result<T>::value(), e.g. ParameterSchema::Builder::build().value().
-        return error.error().describe();
-    } catch (const std::exception& error) {
-        return error.what();
-    } catch (...) {
-        return "unknown exception";
-    }
-}
 
 std::string internalReason(std::string_view what, std::string_view detail) {
     return std::format("{}: {}: {}", errcName(Errc::Internal), what, detail);
@@ -112,14 +91,14 @@ ModuleStatus failedStatus(const ModuleInfo& info, std::string reason,
 // Runs one module's load() and adds the state it returns to `handles` at once, whatever it
 // provides. The log lines name the module and capabilities only: the exception text, the reason
 // and the properties may hold a path, so they go only into the status.
-ModuleStatus loadModule(ModuleLoad (*load)(const ParameterValues&), const ModuleInfo& info,
-                        const ParameterValues& values, detail::ModuleHandles& handles) {
+ModuleStatus loadModule(ModuleLoad (*load)(const ModuleValues&), const ModuleInfo& info,
+                        const ModuleValues& values, detail::ModuleHandles& handles) {
     ModuleLoad result;
     try {
         result = load(values);
     } catch (...) {
         DVV_LOG_ERROR("module '{}' threw from load()", info.id);
-        return failedStatus(info, internalReason("load() threw", describeCurrentException()));
+        return failedStatus(info, internalReason("load() threw", dvv::describeCurrentException()));
     }
     handles.add(std::move(result.handle));
     const auto undeclared = std::ranges::find_if(result.provides, [&info](const std::string& name) {
@@ -203,7 +182,7 @@ std::unique_ptr<ComponentRegistry> ComponentRegistry::load(const ModuleOptions& 
     }
 
     Parts parts;
-    const ParameterValues no_values;
+    const ModuleValues no_values;
     for (const Registered& module : registered) {
         ModuleStatus status;
         if (module.duplicated) {
@@ -211,8 +190,7 @@ std::unique_ptr<ComponentRegistry> ComponentRegistry::load(const ModuleOptions& 
                 module.info, internalReason("duplicate module id", std::string(module.info.id)));
         } else {
             const auto found = options.modules.find(module.info.id);
-            const ParameterValues& values =
-                found != options.modules.end() ? found->second : no_values;
+            const ModuleValues& values = found != options.modules.end() ? found->second : no_values;
             status = loadModule(module.node->load_, module.info, values, parts.handles);
         }
         logModuleStatus(status);
@@ -238,26 +216,12 @@ std::vector<ComponentRegistry::Entry> ComponentRegistry::probeComponents(const C
         Entry entry{node, ComponentStatus{.info = node->hooks_.info()}};
         ComponentStatus& status = entry.status;
         try {
-            status.schema = &node->hooks_.schema();
+            if (auto probed = node->hooks_.probe(caps); !probed) {
+                status.unavailable = std::move(probed.error());
+            }
         } catch (...) {
             status.unavailable =
-                Unavailable{internalReason("schema() threw", describeCurrentException())};
-        }
-        if (status.schema != nullptr && node->interface_kind_ &&
-            *node->interface_kind_ != status.info.kind) {
-            // Checked before probe(): a component of the wrong kind is never probed.
-            status.unavailable = Unavailable{std::format("kind {} does not match interface kind {}",
-                                                         kindName(status.info.kind),
-                                                         kindName(*node->interface_kind_))};
-        } else if (status.schema != nullptr) {
-            try {
-                if (auto probed = node->hooks_.probe(caps); !probed) {
-                    status.unavailable = std::move(probed.error());
-                }
-            } catch (...) {
-                status.unavailable =
-                    Unavailable{internalReason("probe() threw", describeCurrentException())};
-            }
+                Unavailable{internalReason("probe() threw", dvv::describeCurrentException())};
         }
         if (const auto& unavailable = status.unavailable) {
             DVV_LOG_INFO("component '{}' is unavailable: {}", status.info.id, unavailable->reason);
@@ -311,17 +275,6 @@ std::vector<ComponentStatus> ComponentRegistry::list() const {
     return statuses;
 }
 
-std::vector<ComponentStatus> ComponentRegistry::list(Kind kind) const {
-    std::lock_guard lock(mutex_);
-    std::vector<ComponentStatus> statuses;
-    for (const Entry& entry : entries_) {
-        if (entry.status.info.kind == kind) {
-            statuses.push_back(entry.status);
-        }
-    }
-    return statuses;
-}
-
 std::vector<ComponentStatus> ComponentRegistry::listFor(const std::type_info& interface) const {
     std::lock_guard lock(mutex_);
     std::vector<ComponentStatus> statuses;
@@ -333,39 +286,27 @@ std::vector<ComponentStatus> ComponentRegistry::listFor(const std::type_info& in
     return statuses;
 }
 
-Result<ComponentRegistry::Prepared> ComponentRegistry::prepare(
-    std::string_view id, const std::type_info& interface, const ParameterValues& values) const {
-    const detail::RegistrationNode* registration = nullptr;
-    const ParameterSchema* schema = nullptr;
-    {
-        std::lock_guard lock(mutex_);
-        const auto found = std::ranges::find(
-            entries_, id, [](const Entry& entry) { return entry.status.info.id; });
-        if (found == entries_.end()) {
-            return makeError(Errc::Unsupported, std::format("unknown component '{}'", id));
-        }
-        if (*found->registration->interface_ != interface) {
-            return makeError(Errc::Unsupported,
-                             std::format("component '{}' does not implement {}", id,
-                                         detail::demangle(interface.name())));
-        }
-        if (const auto& unavailable = found->status.unavailable) {
-            return makeError(Errc::Unsupported, std::format("component '{}' is unavailable: {}", id,
-                                                            unavailable->reason));
-        }
-        registration = found->registration;
-        schema = found->status.schema;
+Result<const detail::RegistrationNode*> ComponentRegistry::prepare(
+    std::string_view id, const std::type_info& interface) const {
+    std::lock_guard lock(mutex_);
+    const auto found =
+        std::ranges::find(entries_, id, [](const Entry& entry) { return entry.status.info.id; });
+    if (found == entries_.end()) {
+        return makeError(Errc::Unsupported, std::format("unknown component '{}'", id));
     }
-    auto resolved = schema->resolve(values);
-    if (!resolved) {
-        return makeError(Errc::Format,
-                         std::format("component '{}': {}", id, resolved.error().message));
+    if (*found->registration->interface_ != interface) {
+        return makeError(Errc::Unsupported, std::format("component '{}' does not implement {}", id,
+                                                        detail::demangle(interface.name())));
     }
-    return Prepared{registration, std::move(*resolved)};
+    if (const auto& unavailable = found->status.unavailable) {
+        return makeError(Errc::Unsupported,
+                         std::format("component '{}' is unavailable: {}", id, unavailable->reason));
+    }
+    return found->registration;
 }
 
 Error ComponentRegistry::constructionFailed(std::string_view id) {
-    const std::string what = describeCurrentException();
+    const std::string what = dvv::describeCurrentException();
     DVV_LOG_ERROR("component '{}' threw from its constructor and is disabled: {}", id, what);
     {
         std::lock_guard lock(mutex_);

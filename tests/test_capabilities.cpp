@@ -6,6 +6,13 @@
 #include "dvv/registry/capabilities.h"
 #include "dvv/registry/component_info.h"
 
+namespace {
+
+template <class T>
+concept HasKindField = requires(T info) { info.kind; };
+
+}  // namespace
+
 TEST_CASE("capabilities hold names") {
     dvv::Capabilities caps;
     CHECK_FALSE(caps.has("gpu.compute"));
@@ -35,19 +42,9 @@ TEST_CASE("require names the first missing capability") {
     CHECK(missing.error().reason == "missing capability 'gpu.float16'");
 }
 
-TEST_CASE("component kinds have names") {
-    CHECK(dvv::kindName(dvv::Kind::Source) == "Source");
-    CHECK(dvv::kindName(dvv::Kind::FormatDetector) == "FormatDetector");
-    CHECK(dvv::kindName(dvv::Kind::Exporter) == "Exporter");
-    CHECK(dvv::kindName(dvv::Kind::Tool) == "Tool");
-    CHECK(dvv::kindName(dvv::Kind::Metric) == "Metric");
-    CHECK(dvv::kindName(dvv::Kind::Analyser) == "Analyser");
-    CHECK(dvv::kindName(dvv::Kind::Processor) == "Processor");
-}
-
 TEST_CASE("component info is a comparable value") {
-    constexpr dvv::ComponentInfo PSNR{
-        .id = "psnr", .name = "PSNR", .kind = dvv::Kind::Metric, .version = 1};
+    constexpr dvv::ComponentInfo PSNR{.id = "psnr", .name = "PSNR", .version = 1};
+    static_assert(!HasKindField<dvv::ComponentInfo>);
     static_assert(PSNR.id == "psnr");
     dvv::ComponentInfo copy = PSNR;
     CHECK(copy == PSNR);

@@ -14,7 +14,7 @@ struct DuplicateModule {
     static dvv::ModuleInfo info() noexcept {
         return {.id = "test.mod.dup", .name = "Duplicate (second)", .produces = DUP_PRODUCES};
     }
-    static dvv::ModuleLoad load(const dvv::ParameterValues& /*options*/) {
+    static dvv::ModuleLoad load(const dvv::ModuleValues& /*options*/) {
         ++dvv::test::duplicate_module_loads;
         return {.provides = {"test.dup"}};
     }

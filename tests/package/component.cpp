@@ -31,7 +31,7 @@ struct ConsumerModule {
     static dvv::ModuleInfo info() noexcept {
         return {.id = "consumer", .name = "Consumer", .produces = CONSUMER_PRODUCES};
     }
-    static dvv::ModuleLoad load(const dvv::ParameterValues&) {
+    static dvv::ModuleLoad load(const dvv::ModuleValues&) {
         return {.provides = {"consumer.ready"}};
     }
 };

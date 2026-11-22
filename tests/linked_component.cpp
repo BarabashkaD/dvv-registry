@@ -29,7 +29,7 @@ struct LinkedModule {
     static ModuleInfo info() noexcept {
         return {.id = "test.linked_module", .name = "Linked module", .produces = LINKED_PRODUCES};
     }
-    static ModuleLoad load(const ParameterValues& /*options*/) {
+    static ModuleLoad load(const ModuleValues& /*options*/) {
         return {.provides = {"test.linked_ready"}};
     }
 };
